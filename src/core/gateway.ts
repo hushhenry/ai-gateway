@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { streamText } from 'ai';
-import { getProvider } from './providers';
-import { loadAuth } from './auth';
+import { getProvider } from './providers.js';
+import { loadAuth } from './auth.js';
 
 export class AiGateway {
     private app: Hono;

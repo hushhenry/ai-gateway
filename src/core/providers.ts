@@ -1,7 +1,7 @@
 import { OpenAIProvider } from '@ai-sdk/openai';
 import { AnthropicProvider } from '@ai-sdk/anthropic';
 import { GoogleGenerativeAIProvider } from '@ai-sdk/google';
-import { loadAuth, getCredentials } from './auth';
+import { loadAuth, getCredentials } from './auth.js';
 
 export async function getProvider(modelId: string, configPath?: string) {
     // Basic routing logic: provider:model
