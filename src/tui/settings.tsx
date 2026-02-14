@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { render, Text, Box, useInput } from 'ink';
+import Link from 'ink-link';
 import { saveAuth, loadAuth } from '../core/auth.js';
 import { getGeminiAuthUrl, exchangeGeminiCode } from '../utils/oauth/google-gemini.js';
 import { PROVIDER_MODELS } from '../core/models.js';
@@ -180,17 +181,19 @@ const App = () => {
             )}
             {step === 'oauth' && (
                 <Box flexDirection="column">
-                    <Text>1. Copy and open this URL in your browser to login:</Text>
-                    <Box marginTop={1} marginBottom={1} paddingX={1} borderStyle="single" borderColor="blue">
-                        <Text color="blue" wrap="wrap">{oauthUrl}</Text>
+                    <Text>1. Click or copy the URL below to authorize:</Text>
+                    <Box marginTop={1} marginBottom={1}>
+                        <Link url={oauthUrl}>
+                            <Text color="blue" bold>{oauthUrl}</Text>
+                        </Link>
                     </Box>
-                    <Text>2. Paste the full redirect URL here:</Text>
-                    <Box marginTop={1} paddingLeft={1} borderStyle="single" borderColor="gray">
-                        <Text color="green" wrap="wrap">{callbackUrl || '...'}</Text>
+                    <Text>2. Paste the full redirect URL (localhost:8085/...) below:</Text>
+                    <Box marginTop={1} paddingX={1} borderStyle="single" borderColor="gray">
+                        <Text color="green">{callbackUrl || 'Paste URL here...'}</Text>
                     </Box>
                     {status && <Box marginTop={1}><Text color="red">{status}</Text></Box>}
                     <Box marginTop={1}>
-                        <Text color="gray">(Press Enter to verify)</Text>
+                        <Text color="gray">(Press Enter to verify, Esc to cancel)</Text>
                     </Box>
                     {isFetchingModels && (
                         <Box marginTop={1}>
