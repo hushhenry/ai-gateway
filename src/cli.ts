@@ -8,7 +8,7 @@ const program = new Command();
 program
   .name('ai-gateway')
   .description('AI Proxy Gateway supporting Vercel AI SDK and various providers')
-  .version('1.0.0');
+  .version('1.0.1-alpha.30');
 
 program.command('serve')
   .description('Start the AI Gateway server')
