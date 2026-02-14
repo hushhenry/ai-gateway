@@ -27,9 +27,9 @@ program.command('serve')
 
 program.command('login')
   .description('Configure providers (TUI)')
-  .action(() => {
-    console.log('TUI Login not yet implemented in this minimal build.');
-    console.log('Please edit ~/.config/ai-gateway/auth.json manually for now.');
+  .action(async () => {
+    const { runLoginTui } = await import('./tui/settings.js');
+    await runLoginTui();
   });
 
 program.parse();

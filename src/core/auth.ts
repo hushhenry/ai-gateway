@@ -1,5 +1,5 @@
-import { existsSync, readFileSync, writeFileSync } from 'fs';
-import { join } from 'path';
+import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
+import { join, dirname } from 'path';
 import { homedir } from 'os';
 
 const DEFAULT_CONFIG_DIR = join(homedir(), '.config', 'ai-gateway');
@@ -9,6 +9,15 @@ export interface Credentials {
     apiKey?: string;
     type?: 'oauth' | 'key';
     // Add other OAuth fields here as needed
+}
+
+export function saveAuth(auth: Record<string, Credentials>, configPath?: string): void {
+    const p = configPath || join(DEFAULT_CONFIG_DIR, AUTH_FILE);
+    const dir = dirname(p);
+    if (!existsSync(dir)) {
+        mkdirSync(dir, { recursive: true });
+    }
+    writeFileSync(p, JSON.stringify(auth, null, 2), 'utf-8');
 }
 
 export function loadAuth(configPath?: string): Record<string, Credentials> {
