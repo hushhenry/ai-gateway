@@ -1,15 +1,13 @@
 import { loadAuth, getCredentials } from './auth.js';
 
 export async function getProvider(modelId: string, configPath?: string) {
-    // Standardize input: handle both "provider/model" and "provider:model"
-    const delimiter = modelId.includes('/') ? '/' : (modelId.includes(':') ? ':' : null);
-    
-    if (!delimiter) {
-        throw new Error(`Invalid model ID format: "${modelId}". Expected "provider/model"`);
+    // Strict format: provider/model
+    if (!modelId.includes('/')) {
+        throw new Error(`Invalid model ID format: "${modelId}". Expected "provider/model" (e.g., "openai/gpt-4o")`);
     }
 
-    const [providerBrand, ...modelNameParts] = modelId.split(delimiter);
-    const modelName = modelNameParts.join(delimiter);
+    const [providerBrand, ...modelNameParts] = modelId.split('/');
+    const modelName = modelNameParts.join('/');
     
     const creds = await getCredentials(providerBrand, configPath);
 
