@@ -34,21 +34,18 @@ export async function getProvider(modelId: string, configPath?: string) {
             return createAnthropic({ apiKey: creds.apiKey })(modelName);
         }
         case 'google': {
-            // Standard API Key Google Provider
             const { createGoogleGenerativeAI } = await import('@ai-sdk/google');
             return createGoogleGenerativeAI({ apiKey: creds.apiKey })(modelName);
         }
         case 'gemini-cli': {
-            // Google Gemini CLI OAuth Provider (Cloud Code Assist API)
             const { createGoogleGenerativeAI } = await import('@ai-sdk/google');
             return createGoogleGenerativeAI({
-                apiKey: creds.apiKey, // This is the access_token
+                apiKey: creds.apiKey,
                 baseURL: 'https://cloudcode-pa.googleapis.com/v1internal',
                 headers: GEMINI_CLI_HEADERS
             })(modelName);
         }
         case 'antigravity': {
-            // Antigravity sandbox endpoint
             const { createGoogleGenerativeAI } = await import('@ai-sdk/google');
             return createGoogleGenerativeAI({
                 apiKey: creds.apiKey,
