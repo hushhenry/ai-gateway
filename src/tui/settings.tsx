@@ -27,8 +27,15 @@ const App = () => {
     const [selectedModels, setSelectedModels] = useState<string[]>([]);
     const [modelCursor, setModelCursor] = useState(0);
     const [isFetchingModels, setIsFetchingModels] = useState(false);
+    const [showCursor, setShowCursor] = useState(true);
 
     const fetchedModelsRef = useRef<string[] | null>(null);
+
+    // Blinking cursor effect
+    useEffect(() => {
+        const timer = setInterval(() => setShowCursor(s => !s), 500);
+        return () => clearInterval(timer);
+    }, []);
 
     const providerId = PROVIDERS[selectedIndex]?.id;
 
@@ -38,9 +45,7 @@ const App = () => {
             const dynamicModels = await fetchProviderModels(pId);
             const finalModels = [...new Set([...(PROVIDER_MODELS[pId] || []), ...dynamicModels])];
             fetchedModelsRef.current = finalModels;
-        } catch (e) {
-            // silent fail
-        } finally {
+        } catch (e) { /* silent */ } finally {
             setIsFetchingModels(false);
         }
     };
@@ -183,12 +188,13 @@ const App = () => {
                         <Text color="#89B4FA" underline wrap="wrap">{oauthUrl}</Text>
                     </Box>
                     <Text color="#CDD6F4">2. Paste the redirect URL here:</Text>
-                    <Box marginTop={1} paddingX={1} borderStyle="round" borderColor="#89B4FA">
-                        <Box flexGrow={1}>
-                            <Text color={callbackUrl ? '#A6E3A1' : '#6C7086'} wrap="wrap">
-                                {callbackUrl || 'Type or paste here...'}
+                    <Box marginTop={1} paddingX={1} borderStyle="round" borderColor="#89B4FA" minHeight={3}>
+                        <Box flexGrow={1} flexDirection="row">
+                            {!callbackUrl && <Text color="#6C7086">Paste URL from browser...</Text>}
+                            <Text color="#A6E3A1" wrap="wrap">
+                                {callbackUrl}
                             </Text>
-                            <Text backgroundColor="#CDD6F4" color="#1E1E2E"> </Text>
+                            {showCursor && <Text backgroundColor="#CDD6F4" color="#1E1E2E"> </Text>}
                         </Box>
                     </Box>
                     {status && <Box marginTop={1}><Text color="#F38BA8">{status}</Text></Box>}
@@ -201,12 +207,15 @@ const App = () => {
             {step === 'input' && (
                 <Box flexDirection="column">
                     <Text color="#CDD6F4">Configuring: <Text color="#89B4FA" bold>{PROVIDERS[selectedIndex].name}</Text></Text>
-                    <Box marginTop={1} paddingX={1} borderStyle="round" borderColor="#89B4FA">
-                        <Text color="#CDD6F4">API Key: </Text>
-                        <Text color="#A6E3A1">
-                            {'*'.repeat(apiKey.length)}
-                        </Text>
-                        <Text backgroundColor="#CDD6F4" color="#1E1E2E"> </Text>
+                    <Box marginTop={1} paddingX={1} borderStyle="round" borderColor="#89B4FA" minHeight={3}>
+                        <Box flexDirection="row">
+                            <Text color="#CDD6F4">API Key: </Text>
+                            {!apiKey && <Text color="#6C7086">Type your key here...</Text>}
+                            <Text color="#A6E3A1">
+                                {'*'.repeat(apiKey.length)}
+                            </Text>
+                            {showCursor && <Text backgroundColor="#CDD6F4" color="#1E1E2E"> </Text>}
+                        </Box>
                     </Box>
                     <Box marginTop={1}>
                         <Text color="#6C7086">(Press Enter to continue)</Text>
