@@ -28,6 +28,7 @@ program.command('serve')
 program.command('login')
   .description('Configure providers (TUI)')
   .action(async () => {
+    // @ts-ignore
     const { runLoginTui } = await import('./tui/settings.js');
     await runLoginTui();
   });
