@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { render, Text, Box, useInput } from 'ink';
 import { saveAuth, loadAuth } from '../core/auth.js';
 import { getGeminiAuthUrl, exchangeGeminiCode } from '../utils/oauth/google-gemini.js';
@@ -15,7 +15,7 @@ const PROVIDERS = [
 ];
 
 const App = () => {
-    const [step, setStep] = useState<'select' | 'input' | 'oauth' | 'loading_models' | 'models' | 'done'>('select');
+    const [step, setStep] = useState<'select' | 'input' | 'oauth' | 'models' | 'done'>('select');
     const [selectedIndex, setSelectedIndex] = useState(0);
     const [apiKey, setApiKey] = useState('');
     const [oauthUrl, setOauthUrl] = useState('');
@@ -26,17 +26,38 @@ const App = () => {
     const [availableModels, setAvailableModels] = useState<string[]>([]);
     const [selectedModels, setSelectedModels] = useState<string[]>([]);
     const [modelCursor, setModelCursor] = useState(0);
+    const [isFetchingModels, setIsFetchingModels] = useState(false);
+
+    const fetchedModelsRef = useRef<string[] | null>(null);
 
     const providerId = PROVIDERS[selectedIndex]?.id;
 
-    const startModelSelection = async (pId: string) => {
-        setStep('loading_models');
-        const dynamicModels = await fetchProviderModels(pId);
-        // Merge with hardcoded ones as fallback
-        const finalModels = [...new Set([...(PROVIDER_MODELS[pId] || []), ...dynamicModels])];
-        setAvailableModels(finalModels);
-        setSelectedModels(finalModels); // Default all on
-        setStep('models');
+    const prefetchModels = async (pId: string) => {
+        setIsFetchingModels(true);
+        try {
+            const dynamicModels = await fetchProviderModels(pId);
+            const finalModels = [...new Set([...(PROVIDER_MODELS[pId] || []), ...dynamicModels])];
+            fetchedModelsRef.current = finalModels;
+        } catch (e) {
+            console.error('Background fetch failed', e);
+        } finally {
+            setIsFetchingModels(false);
+        }
+    };
+
+    const moveToModelSelection = () => {
+        if (fetchedModelsRef.current) {
+            setAvailableModels(fetchedModelsRef.current);
+            setSelectedModels(fetchedModelsRef.current);
+            setStep('models');
+        } else if (isFetchingModels) {
+            setStep('models');
+        } else {
+            const fallback = PROVIDER_MODELS[providerId] || [];
+            setAvailableModels(fallback);
+            setSelectedModels(fallback);
+            setStep('models');
+        }
     };
 
     useInput(async (input, key) => {
@@ -45,6 +66,7 @@ const App = () => {
             if (key.downArrow) setSelectedIndex(Math.min(PROVIDERS.length - 1, selectedIndex + 1));
             if (key.return) {
                 const provider = PROVIDERS[selectedIndex];
+                prefetchModels(provider.id);
                 if (provider.id === 'google') {
                     const { url, verifier } = await getGeminiAuthUrl();
                     setOauthUrl(url);
@@ -74,7 +96,7 @@ const App = () => {
                     if (!code) throw new Error('No code found');
                     if (state && state !== verifier) throw new Error('State mismatch');
                     await exchangeGeminiCode(code, verifier);
-                    await startModelSelection('google');
+                    moveToModelSelection();
                 } catch (e: any) {
                     setStatus(`Error: ${e.message}`);
                 }
@@ -85,16 +107,16 @@ const App = () => {
             }
         } else if (step === 'input') {
             if (key.return) {
-                await startModelSelection(providerId);
+                moveToModelSelection();
             } else if (key.backspace || key.delete) {
                 setApiKey(apiKey.slice(0, -1));
             } else if (input && !key.ctrl && !key.meta) {
                 setApiKey(apiKey + input);
             }
         } else if (step === 'models') {
+            if (isFetchingModels && !availableModels.length) return;
             if (key.upArrow) setModelCursor(Math.max(0, modelCursor - 1));
             if (key.downArrow) setModelCursor(Math.min(availableModels.length, modelCursor + 1));
-            
             if (input === ' ') {
                 if (modelCursor === availableModels.length) {
                     if (selectedModels.length === availableModels.length) {
@@ -111,7 +133,6 @@ const App = () => {
                     }
                 }
             }
-
             if (key.return) {
                 const auth = loadAuth();
                 const provider = PROVIDERS[selectedIndex];
@@ -128,16 +149,21 @@ const App = () => {
         } else if (step === 'done') {
             process.exit(0);
         }
-
         if (key.escape) process.exit(0);
     });
+
+    useEffect(() => {
+        if (step === 'models' && !isFetchingModels && fetchedModelsRef.current && !availableModels.length) {
+            setAvailableModels(fetchedModelsRef.current);
+            setSelectedModels(fetchedModelsRef.current);
+        }
+    }, [isFetchingModels, step, availableModels]);
 
     return (
         <Box flexDirection="column" padding={1} borderStyle="round" borderColor="cyan">
             <Box marginBottom={1}>
                 <Text bold color="yellow">🚀 AI Gateway Configuration</Text>
             </Box>
-
             {step === 'select' && (
                 <Box flexDirection="column">
                     <Text>Select a Provider to configure:</Text>
@@ -152,7 +178,6 @@ const App = () => {
                     {status && <Box marginTop={1}><Text color="red">{status}</Text></Box>}
                 </Box>
             )}
-
             {step === 'oauth' && (
                 <Box flexDirection="column">
                     <Text>1. Copy and open this URL in your browser to login:</Text>
@@ -167,9 +192,13 @@ const App = () => {
                     <Box marginTop={1}>
                         <Text color="gray">(Press Enter to verify)</Text>
                     </Box>
+                    {isFetchingModels && (
+                        <Box marginTop={1}>
+                            <Text color="yellow">⏳ (Background) Fetching model list...</Text>
+                        </Box>
+                    )}
                 </Box>
             )}
-
             {step === 'input' && (
                 <Box flexDirection="column">
                     <Text>Configuring: <Text color="cyan" bold>{PROVIDERS[selectedIndex].name}</Text></Text>
@@ -178,38 +207,41 @@ const App = () => {
                         <Text color="green">{'*'.repeat(apiKey.length)}</Text>
                     </Box>
                     <Box marginTop={1}>
-                        <Text color="gray">(Press Enter to fetch models)</Text>
+                        <Text color="gray">(Press Enter to continue)</Text>
                     </Box>
+                    {isFetchingModels && (
+                        <Box marginTop={1}>
+                            <Text color="yellow">⏳ (Background) Fetching model list...</Text>
+                        </Box>
+                    )}
                 </Box>
             )}
-
-            {step === 'loading_models' && (
-                <Box flexDirection="column">
-                    <Text color="yellow">Fetching available models for {PROVIDERS[selectedIndex].name}...</Text>
-                </Box>
-            )}
-
             {step === 'models' && (
                 <Box flexDirection="column">
-                    <Text>Select models to enable for <Text color="cyan" bold>{PROVIDERS[selectedIndex].name}</Text>:</Text>
-                    <Box flexDirection="column" marginTop={1}>
-                        {availableModels.map((model, index) => (
-                            <Text key={model} color={index === modelCursor ? 'cyan' : undefined}>
-                                {index === modelCursor ? ' > ' : '   '}
-                                [{selectedModels.includes(model) ? 'x' : ' '}] {model}
-                            </Text>
-                        ))}
-                        <Text color={modelCursor === availableModels.length ? 'yellow' : undefined}>
-                            {modelCursor === availableModels.length ? ' > ' : '   '}
-                            [ ] Toggle All / None
-                        </Text>
-                    </Box>
-                    <Box marginTop={1}>
-                        <Text color="gray">(Space to toggle, Enter to save)</Text>
-                    </Box>
+                    {isFetchingModels && !availableModels.length ? (
+                        <Text color="yellow">Loading model list, please wait...</Text>
+                    ) : (
+                        <>
+                            <Text>Select models to enable for <Text color="cyan" bold>{PROVIDERS[selectedIndex].name}</Text>:</Text>
+                            <Box flexDirection="column" marginTop={1}>
+                                {availableModels.map((model, index) => (
+                                    <Text key={model} color={index === modelCursor ? 'cyan' : undefined}>
+                                        {index === modelCursor ? ' > ' : '   '}
+                                        [{selectedModels.includes(model) ? 'x' : ' '}] {model}
+                                    </Text>
+                                ))}
+                                <Text color={modelCursor === availableModels.length ? 'yellow' : undefined}>
+                                    {modelCursor === availableModels.length ? ' > ' : '   '}
+                                    [ ] Toggle All / None
+                                </Text>
+                            </Box>
+                            <Box marginTop={1}>
+                                <Text color="gray">(Space to toggle, Enter to save)</Text>
+                            </Box>
+                        </>
+                    )}
                 </Box>
             )}
-
             {step === 'done' && (
                 <Box flexDirection="column">
                     <Text color="green" bold>✅ Configuration saved successfully!</Text>
