@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { render, Text, Box, useInput, useStdout } from 'ink';
+import { render, Text, Box, useInput } from 'ink';
 import open from 'open';
 import { saveAuth, loadAuth } from '../core/auth.js';
 import { getGeminiAuthUrl, exchangeGeminiCode } from '../utils/oauth/google-gemini.js';
@@ -7,12 +7,13 @@ import { PROVIDER_MODELS } from '../core/models.js';
 import { fetchProviderModels } from '../core/discovery.js';
 
 const PROVIDERS = [
-    { id: 'openai', name: 'OpenAI' },
-    { id: 'anthropic', name: 'Anthropic' },
-    { id: 'google', name: 'Google Gemini (OAuth)' },
-    { id: 'github-copilot', name: 'GitHub Copilot (OAuth)' },
-    { id: 'deepseek', name: 'DeepSeek' },
-    { id: 'openrouter', name: 'OpenRouter' }
+    { id: 'openai', name: 'OpenAI (API Key)' },
+    { id: 'anthropic', name: 'Anthropic (API Key)' },
+    { id: 'google', name: 'Google Gemini (API Key)' },
+    { id: 'gemini-cli', name: 'Google Gemini (OAuth / gemini-cli)' },
+    { id: 'antigravity', name: 'Antigravity (OAuth / Sandbox)' },
+    { id: 'deepseek', name: 'DeepSeek (API Key)' },
+    { id: 'openrouter', name: 'OpenRouter (API Key)' }
 ];
 
 const App = () => {
@@ -30,10 +31,8 @@ const App = () => {
     const [isFetchingModels, setIsFetchingModels] = useState(false);
     const [showCursor, setShowCursor] = useState(true);
 
-    const { write } = useStdout();
     const fetchedModelsRef = useRef<string[] | null>(null);
 
-    // Blinking cursor
     useEffect(() => {
         const timer = setInterval(() => setShowCursor(s => !s), 500);
         return () => clearInterval(timer);
@@ -66,7 +65,7 @@ const App = () => {
             if (key.return) {
                 const provider = PROVIDERS[selectedIndex];
                 prefetchModels(provider.id);
-                if (provider.id === 'google') {
+                if (provider.id === 'gemini-cli' || provider.id === 'antigravity') {
                     const { url, verifier } = await getGeminiAuthUrl();
                     setOauthUrl(url);
                     setVerifier(verifier);
@@ -74,8 +73,6 @@ const App = () => {
                     try {
                         await open(url);
                     } catch (e) {}
-                } else if (provider.id === 'github-copilot') {
-                    setStatus('GitHub Copilot OAuth pending.');
                 } else {
                     setStep('input');
                 }
@@ -84,6 +81,14 @@ const App = () => {
             if (key.return && authCode) {
                 try {
                     await exchangeGeminiCode(authCode, verifier);
+                    const auth = loadAuth();
+                    const provider = PROVIDERS[selectedIndex];
+                    const googleCreds = auth['google'];
+                    if (googleCreds) {
+                        auth[provider.id] = { ...googleCreds, type: 'oauth' };
+                        delete auth['google'];
+                        saveAuth(auth);
+                    }
                     moveToModelSelection();
                 } catch (e: any) {
                     setStatus(`Error: ${e.message}`);
@@ -124,11 +129,11 @@ const App = () => {
             if (key.return) {
                 const auth = loadAuth();
                 const provider = PROVIDERS[selectedIndex];
-                if (provider.id !== 'google') {
+                if (provider.id !== 'gemini-cli' && provider.id !== 'antigravity') {
                    auth[provider.id] = { apiKey, type: 'key', enabledModels: selectedModels };
                 } else {
-                   if (auth['google']) {
-                       auth['google'].enabledModels = selectedModels;
+                   if (auth[provider.id]) {
+                       auth[provider.id].enabledModels = selectedModels;
                    }
                 }
                 saveAuth(auth);
@@ -147,19 +152,13 @@ const App = () => {
         }
     }, [isFetchingModels, step, availableModels]);
 
-    // OAUTH STEP: Plain text style to match gemini-cli exactly.
-    // By keeping it within Ink but removing all styling/borders, we maintain interactivity.
     if (step === 'oauth') {
         return (
-            <Box flexDirection="column" paddingX={0}>
+            <Box flexDirection="column" padding={1}>
                 <Text>Please visit the following URL to authorize the application:</Text>
-                <Text> </Text>
-                {/* 
-                    Crucial change: No wrapping, no colors, no Bold. 
-                    Just raw text inside a standard Box. 
-                */}
-                <Text>{oauthUrl}</Text>
-                <Text> </Text>
+                <Box paddingY={1} flexDirection="column">
+                    <Text bold color="#89B4FA">{oauthUrl}</Text>
+                </Box>
                 <Box flexDirection="row">
                     <Text>Enter the authorization code: </Text>
                     <Text color="#A6E3A1">{authCode}</Text>

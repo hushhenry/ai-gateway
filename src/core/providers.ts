@@ -1,9 +1,18 @@
 import { loadAuth, getCredentials } from './auth.js';
 
+const GEMINI_CLI_HEADERS = {
+    "User-Agent": "google-cloud-sdk vscode_cloudshelleditor/0.1",
+    "X-Goog-Api-Client": "gl-node/22.17.0",
+    "Client-Metadata": JSON.stringify({
+        ideType: "IDE_UNSPECIFIED",
+        platform: "PLATFORM_UNSPECIFIED",
+        pluginType: "GEMINI",
+    }),
+};
+
 export async function getProvider(modelId: string, configPath?: string) {
-    // Strict format: provider/model
     if (!modelId.includes('/')) {
-        throw new Error(`Invalid model ID format: "${modelId}". Expected "provider/model" (e.g., "openai/gpt-4o")`);
+        throw new Error(`Invalid model ID format: "${modelId}". Expected "provider/model"`);
     }
 
     const [providerBrand, ...modelNameParts] = modelId.split('/');
@@ -16,27 +25,54 @@ export async function getProvider(modelId: string, configPath?: string) {
     }
 
     switch (providerBrand) {
-        case 'openai':
+        case 'openai': {
             const { createOpenAI } = await import('@ai-sdk/openai');
             return createOpenAI({ apiKey: creds.apiKey })(modelName);
-        case 'anthropic':
+        }
+        case 'anthropic': {
             const { createAnthropic } = await import('@ai-sdk/anthropic');
             return createAnthropic({ apiKey: creds.apiKey })(modelName);
-        case 'google':
+        }
+        case 'google': {
+            // Standard API Key Google Provider
             const { createGoogleGenerativeAI } = await import('@ai-sdk/google');
             return createGoogleGenerativeAI({ apiKey: creds.apiKey })(modelName);
-        case 'deepseek':
+        }
+        case 'gemini-cli': {
+            // Google Gemini CLI OAuth Provider (Cloud Code Assist API)
+            const { createGoogleGenerativeAI } = await import('@ai-sdk/google');
+            return createGoogleGenerativeAI({
+                apiKey: creds.apiKey, // This is the access_token
+                baseURL: 'https://cloudcode-pa.googleapis.com/v1internal',
+                headers: GEMINI_CLI_HEADERS
+            })(modelName);
+        }
+        case 'antigravity': {
+            // Antigravity sandbox endpoint
+            const { createGoogleGenerativeAI } = await import('@ai-sdk/google');
+            return createGoogleGenerativeAI({
+                apiKey: creds.apiKey,
+                baseURL: 'https://daily-cloudcode-pa.sandbox.googleapis.com/v1internal',
+                headers: {
+                    ...GEMINI_CLI_HEADERS,
+                    "User-Agent": "antigravity/1.15.8 darwin/arm64"
+                }
+            })(modelName);
+        }
+        case 'deepseek': {
             const { createOpenAI: createDeepSeek } = await import('@ai-sdk/openai');
             return createDeepSeek({ 
                 apiKey: creds.apiKey,
                 baseURL: 'https://api.deepseek.com/v1' 
             })(modelName);
-        case 'openrouter':
+        }
+        case 'openrouter': {
             const { createOpenAI: createOpenRouter } = await import('@ai-sdk/openai');
             return createOpenRouter({ 
                 apiKey: creds.apiKey,
                 baseURL: 'https://openrouter.ai/api/v1' 
             })(modelName);
+        }
         default:
             throw new Error(`Unsupported provider: ${providerBrand}`);
     }
