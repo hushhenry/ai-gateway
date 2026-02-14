@@ -1,7 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { render, Text, Box, useInput } from 'ink';
+import { render, Text, Box, useInput, useStdout } from 'ink';
 import open from 'open';
-import readline from 'node:readline';
 import { saveAuth, loadAuth } from '../core/auth.js';
 import { getGeminiAuthUrl, exchangeGeminiCode } from '../utils/oauth/google-gemini.js';
 import { PROVIDER_MODELS } from '../core/models.js';
@@ -16,18 +15,29 @@ const PROVIDERS = [
     { id: 'openrouter', name: 'OpenRouter' }
 ];
 
-const App = ({ onSelectGoogle }: { onSelectGoogle: () => void }) => {
-    const [step, setStep] = useState<'select' | 'input' | 'models' | 'done'>('select');
+const App = () => {
+    const [step, setStep] = useState<'select' | 'input' | 'oauth' | 'models' | 'done'>('select');
     const [selectedIndex, setSelectedIndex] = useState(0);
     const [apiKey, setApiKey] = useState('');
+    const [oauthUrl, setOauthUrl] = useState('');
+    const [verifier, setVerifier] = useState('');
+    const [authCode, setAuthCode] = useState('');
     const [status, setStatus] = useState('');
     
     const [availableModels, setAvailableModels] = useState<string[]>([]);
     const [selectedModels, setSelectedModels] = useState<string[]>([]);
     const [modelCursor, setModelCursor] = useState(0);
     const [isFetchingModels, setIsFetchingModels] = useState(false);
+    const [showCursor, setShowCursor] = useState(true);
 
+    const { write } = useStdout();
     const fetchedModelsRef = useRef<string[] | null>(null);
+
+    // Blinking cursor
+    useEffect(() => {
+        const timer = setInterval(() => setShowCursor(s => !s), 500);
+        return () => clearInterval(timer);
+    }, []);
 
     const providerId = PROVIDERS[selectedIndex]?.id;
 
@@ -55,16 +65,33 @@ const App = ({ onSelectGoogle }: { onSelectGoogle: () => void }) => {
             if (key.downArrow) setSelectedIndex(Math.min(PROVIDERS.length - 1, selectedIndex + 1));
             if (key.return) {
                 const provider = PROVIDERS[selectedIndex];
-                if (provider.id === 'google') {
-                    onSelectGoogle();
-                    return;
-                }
                 prefetchModels(provider.id);
-                if (provider.id === 'github-copilot') {
+                if (provider.id === 'google') {
+                    const { url, verifier } = await getGeminiAuthUrl();
+                    setOauthUrl(url);
+                    setVerifier(verifier);
+                    setStep('oauth');
+                    try {
+                        await open(url);
+                    } catch (e) {}
+                } else if (provider.id === 'github-copilot') {
                     setStatus('GitHub Copilot OAuth pending.');
                 } else {
                     setStep('input');
                 }
+            }
+        } else if (step === 'oauth') {
+            if (key.return && authCode) {
+                try {
+                    await exchangeGeminiCode(authCode, verifier);
+                    moveToModelSelection();
+                } catch (e: any) {
+                    setStatus(`Error: ${e.message}`);
+                }
+            } else if (key.backspace || key.delete) {
+                setAuthCode(authCode.slice(0, -1));
+            } else if (input && !key.ctrl && !key.meta) {
+                setAuthCode(authCode + input);
             }
         } else if (step === 'input') {
             if (key.return) {
@@ -97,7 +124,13 @@ const App = ({ onSelectGoogle }: { onSelectGoogle: () => void }) => {
             if (key.return) {
                 const auth = loadAuth();
                 const provider = PROVIDERS[selectedIndex];
-                auth[provider.id] = { apiKey, type: 'key', enabledModels: selectedModels };
+                if (provider.id !== 'google') {
+                   auth[provider.id] = { apiKey, type: 'key', enabledModels: selectedModels };
+                } else {
+                   if (auth['google']) {
+                       auth['google'].enabledModels = selectedModels;
+                   }
+                }
                 saveAuth(auth);
                 setStep('done');
             }
@@ -113,6 +146,32 @@ const App = ({ onSelectGoogle }: { onSelectGoogle: () => void }) => {
             setSelectedModels(fetchedModelsRef.current);
         }
     }, [isFetchingModels, step, availableModels]);
+
+    // OAUTH STEP: Plain text style to match gemini-cli exactly.
+    // By keeping it within Ink but removing all styling/borders, we maintain interactivity.
+    if (step === 'oauth') {
+        return (
+            <Box flexDirection="column" paddingX={0}>
+                <Text>Please visit the following URL to authorize the application:</Text>
+                <Text> </Text>
+                {/* 
+                    Crucial change: No wrapping, no colors, no Bold. 
+                    Just raw text inside a standard Box. 
+                */}
+                <Text>{oauthUrl}</Text>
+                <Text> </Text>
+                <Box flexDirection="row">
+                    <Text>Enter the authorization code: </Text>
+                    <Text color="#A6E3A1">{authCode}</Text>
+                    {showCursor && <Text backgroundColor="#CDD6F4" color="#1E1E2E"> </Text>}
+                </Box>
+                {status && <Box marginTop={1}><Text color="#F38BA8">{status}</Text></Box>}
+                <Box marginTop={1}>
+                    <Text color="#6C7086">(Press Enter to verify, Esc to cancel)</Text>
+                </Box>
+            </Box>
+        );
+    }
 
     return (
         <Box flexDirection="column" padding={1} borderStyle="round" borderColor="#89B4FA">
@@ -147,6 +206,7 @@ const App = ({ onSelectGoogle }: { onSelectGoogle: () => void }) => {
                             <Text color="#A6E3A1">
                                 {'*'.repeat(apiKey.length)}
                             </Text>
+                            {showCursor && <Text backgroundColor="#CDD6F4" color="#1E1E2E"> </Text>}
                         </Box>
                     </Box>
                     <Box marginTop={1}>
@@ -201,55 +261,5 @@ const App = ({ onSelectGoogle }: { onSelectGoogle: () => void }) => {
 };
 
 export async function runLoginTui() {
-    const startGoogleAuth = async () => {
-        instance.unmount();
-        
-        const { url, verifier } = await getGeminiAuthUrl();
-        
-        // Match gemini-cli exactly: exit alternate screen if any, clear, and print raw
-        process.stdout.write('\u001B[?1049l'); // Exit alternate screen
-        process.stdout.write('\u001B[2J\u001B[H'); // Clear
-        
-        console.log('\nPlease visit the following URL to authorize the application:\n');
-        console.log(url);
-        console.log('\n');
-        
-        const rl = readline.createInterface({
-            input: process.stdin,
-            output: process.stdout
-        });
-        
-        try {
-            await open(url);
-        } catch (e) {}
-
-        rl.question('Enter the authorization code: ', async (code) => {
-            try {
-                await exchangeGeminiCode(code, verifier);
-                console.log('\n✅ Authentication successful!\n');
-                
-                // Fetch models for google
-                console.log('Fetching available models...');
-                const dynamicModels = await fetchProviderModels('google');
-                const finalModels = [...new Set([...(PROVIDER_MODELS['google'] || []), ...dynamicModels])];
-                
-                const auth = loadAuth();
-                if (auth['google']) {
-                    auth['google'].enabledModels = finalModels;
-                    saveAuth(auth);
-                }
-                
-                console.log(`Successfully enabled ${finalModels.length} models for Google Gemini.`);
-                console.log('Setup complete. You can now use "ai-gateway serve".');
-                rl.close();
-                process.exit(0);
-            } catch (e: any) {
-                console.error(`\n❌ Error: ${e.message}`);
-                rl.close();
-                process.exit(1);
-            }
-        });
-    };
-
-    const instance = render(<App onSelectGoogle={startGoogleAuth} />);
+    render(<App />);
 }
