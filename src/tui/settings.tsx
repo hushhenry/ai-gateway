@@ -152,99 +152,108 @@ const App = () => {
     }, [isFetchingModels, step, availableModels]);
 
     return (
-        <Box flexDirection="column" padding={1} borderStyle="round" borderColor="cyan">
+        <Box flexDirection="column" padding={1}>
             <Box marginBottom={1}>
-                <Text bold color="yellow">🚀 AI Gateway Configuration</Text>
+                <Text bold color="#89B4FA">🚀 AI Gateway Configuration</Text>
             </Box>
+            
             {step === 'select' && (
                 <Box flexDirection="column">
-                    <Text>Select a Provider to configure:</Text>
+                    <Text color="#CDD6F4">Select a Provider to configure:</Text>
                     <Box flexDirection="column" marginTop={1}>
                         {PROVIDERS.map((provider, index) => (
-                            <Text key={provider.id} color={index === selectedIndex ? 'cyan' : undefined}>
-                                {index === selectedIndex ? ' > ' : '   '}
-                                {provider.name}
-                            </Text>
+                            <Box key={provider.id}>
+                                <Text color={index === selectedIndex ? '#89B4FA' : '#6C7086'}>
+                                    {index === selectedIndex ? '●' : '○'}
+                                </Text>
+                                <Text color={index === selectedIndex ? '#CDD6F4' : '#6C7086'} bold={index === selectedIndex}>
+                                    {' '}{provider.name}
+                                </Text>
+                            </Box>
                         ))}
                     </Box>
-                    {status && <Box marginTop={1}><Text color="red">{status}</Text></Box>}
+                    {status && <Box marginTop={1}><Text color="#F38BA8">{status}</Text></Box>}
                 </Box>
             )}
+
             {step === 'oauth' && (
                 <Box flexDirection="column">
-                    <Text>1. Copy and authorize via this URL:</Text>
+                    <Text color="#CDD6F4">1. Open this URL in browser:</Text>
                     <Box marginTop={1} marginBottom={1}>
-                        <Text color="blue" bold wrap="wrap">{oauthUrl}</Text>
+                        <Text color="#89B4FA" underline wrap="wrap">{oauthUrl}</Text>
                     </Box>
-                    <Text>2. Paste the redirect URL (localhost:8085/...) here:</Text>
-                    <Box marginTop={1} paddingX={1} borderStyle="single" borderColor="cyan">
-                        <Text color={callbackUrl ? 'green' : 'gray'}>
-                            {callbackUrl || 'Type or paste here...'}
-                            <Text color="cyan" backgroundColor="white"> </Text>
-                        </Text>
-                    </Box>
-                    {status && <Box marginTop={1}><Text color="red">{status}</Text></Box>}
-                    <Box marginTop={1}>
-                        <Text color="gray">(Press Enter to verify, Esc to cancel)</Text>
-                    </Box>
-                    {isFetchingModels && (
-                        <Box marginTop={1}>
-                            <Text color="yellow">⏳ (Background) Fetching model list...</Text>
+                    <Text color="#CDD6F4">2. Paste the redirect URL here:</Text>
+                    <Box marginTop={1} paddingX={1} borderStyle="round" borderColor="#89B4FA">
+                        <Box flexGrow={1}>
+                            <Text color={callbackUrl ? '#A6E3A1' : '#6C7086'} wrap="wrap">
+                                {callbackUrl || 'Type or paste here...'}
+                            </Text>
+                            <Text backgroundColor="#CDD6F4" color="#1E1E2E"> </Text>
                         </Box>
-                    )}
+                    </Box>
+                    {status && <Box marginTop={1}><Text color="#F38BA8">{status}</Text></Box>}
+                    <Box marginTop={1}>
+                        <Text color="#6C7086">(Press Enter to verify, Esc to cancel)</Text>
+                    </Box>
                 </Box>
             )}
+
             {step === 'input' && (
                 <Box flexDirection="column">
-                    <Text>Configuring: <Text color="cyan" bold>{PROVIDERS[selectedIndex].name}</Text></Text>
-                    <Box marginTop={1} paddingX={1} borderStyle="single" borderColor="cyan">
-                        <Text>API Key: </Text>
-                        <Text color="green">
+                    <Text color="#CDD6F4">Configuring: <Text color="#89B4FA" bold>{PROVIDERS[selectedIndex].name}</Text></Text>
+                    <Box marginTop={1} paddingX={1} borderStyle="round" borderColor="#89B4FA">
+                        <Text color="#CDD6F4">API Key: </Text>
+                        <Text color="#A6E3A1">
                             {'*'.repeat(apiKey.length)}
-                            <Text color="cyan" backgroundColor="white"> </Text>
                         </Text>
+                        <Text backgroundColor="#CDD6F4" color="#1E1E2E"> </Text>
                     </Box>
                     <Box marginTop={1}>
-                        <Text color="gray">(Press Enter to continue)</Text>
+                        <Text color="#6C7086">(Press Enter to continue)</Text>
                     </Box>
-                    {isFetchingModels && (
-                        <Box marginTop={1}>
-                            <Text color="yellow">⏳ (Background) Fetching model list...</Text>
-                        </Box>
-                    )}
                 </Box>
             )}
+
             {step === 'models' && (
                 <Box flexDirection="column">
                     {isFetchingModels && !availableModels.length ? (
-                        <Text color="yellow">Loading model list, please wait...</Text>
+                        <Text color="#F9E2AF">Loading model list...</Text>
                     ) : (
                         <>
-                            <Text>Select models to enable for <Text color="cyan" bold>{PROVIDERS[selectedIndex].name}</Text>:</Text>
+                            <Text color="#CDD6F4">Enable models for <Text color="#89B4FA" bold>{PROVIDERS[selectedIndex].name}</Text>:</Text>
                             <Box flexDirection="column" marginTop={1}>
                                 {availableModels.map((model, index) => (
-                                    <Text key={model} color={index === modelCursor ? 'cyan' : undefined}>
-                                        {index === modelCursor ? ' > ' : '   '}
-                                        [{selectedModels.includes(model) ? 'x' : ' '}] {model}
-                                    </Text>
+                                    <Box key={model}>
+                                        <Text color={index === modelCursor ? '#89B4FA' : '#6C7086'}>
+                                            {index === modelCursor ? '●' : ' '}
+                                        </Text>
+                                        <Text color={selectedModels.includes(model) ? '#A6E3A1' : '#6C7086'}>
+                                            {' '}[{selectedModels.includes(model) ? '✔' : ' '}] {model}
+                                        </Text>
+                                    </Box>
                                 ))}
-                                <Text color={modelCursor === availableModels.length ? 'yellow' : undefined}>
-                                    {modelCursor === availableModels.length ? ' > ' : '   '}
-                                    [ ] Toggle All / None
-                                </Text>
+                                <Box marginTop={1}>
+                                    <Text color={modelCursor === availableModels.length ? '#F9E2AF' : '#6C7086'}>
+                                        {modelCursor === availableModels.length ? '●' : ' '}
+                                    </Text>
+                                    <Text color={modelCursor === availableModels.length ? '#F9E2AF' : '#6C7086'}>
+                                        {' '}[ ] Toggle All / None
+                                    </Text>
+                                </Box>
                             </Box>
                             <Box marginTop={1}>
-                                <Text color="gray">(Space to toggle, Enter to save)</Text>
+                                <Text color="#6C7086">(Space to toggle, Enter to save)</Text>
                             </Box>
                         </>
                     )}
                 </Box>
             )}
+
             {step === 'done' && (
                 <Box flexDirection="column">
-                    <Text color="green" bold>✅ Configuration saved successfully!</Text>
+                    <Text color="#A6E3A1" bold>✅ Configuration saved!</Text>
                     <Box marginTop={1}>
-                        <Text>Press Enter to exit.</Text>
+                        <Text color="#CDD6F4">Press Enter to exit.</Text>
                     </Box>
                 </Box>
             )}
