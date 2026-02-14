@@ -8,7 +8,9 @@ const AUTH_FILE = 'auth.json';
 export interface Credentials {
     apiKey?: string;
     type?: 'oauth' | 'key';
-    // Add other OAuth fields here as needed
+    refresh?: string;
+    expires?: number;
+    projectId?: string;
 }
 
 export function saveAuth(auth: Record<string, Credentials>, configPath?: string): void {

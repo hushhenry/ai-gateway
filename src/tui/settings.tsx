@@ -1,23 +1,24 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { render, Text, Box, useInput } from 'ink';
 import { saveAuth, loadAuth } from '../core/auth.js';
+import { loginGeminiCli } from '../utils/oauth/google-gemini.js';
 
 const PROVIDERS = [
     { id: 'openai', name: 'OpenAI' },
     { id: 'anthropic', name: 'Anthropic' },
-    { id: 'google', name: 'Google Gemini' },
+    { id: 'google', name: 'Google Gemini (OAuth)' },
     { id: 'github-copilot', name: 'GitHub Copilot (OAuth)' },
     { id: 'deepseek', name: 'DeepSeek' },
     { id: 'openrouter', name: 'OpenRouter' }
 ];
 
 const App = () => {
-    const [step, setStep] = useState<'select' | 'input' | 'done'>('select');
+    const [step, setStep] = useState<'select' | 'input' | 'oauth' | 'done'>('select');
     const [selectedIndex, setSelectedIndex] = useState(0);
     const [apiKey, setApiKey] = useState('');
     const [status, setStatus] = useState('');
 
-    useInput((input, key) => {
+    useInput(async (input, key) => {
         if (step === 'select') {
             if (key.upArrow) {
                 setSelectedIndex(Math.max(0, selectedIndex - 1));
@@ -26,8 +27,18 @@ const App = () => {
                 setSelectedIndex(Math.min(PROVIDERS.length - 1, selectedIndex + 1));
             }
             if (key.return) {
-                if (PROVIDERS[selectedIndex].id === 'github-copilot') {
-                    setStatus('GitHub Copilot OAuth requires complex flow. Minimal TUI support pending.');
+                const provider = PROVIDERS[selectedIndex];
+                if (provider.id === 'google') {
+                    setStep('oauth');
+                    try {
+                        await loginGeminiCli();
+                        setStep('done');
+                    } catch (e: any) {
+                        setStatus(`OAuth failed: ${e.message}`);
+                        setStep('select');
+                    }
+                } else if (provider.id === 'github-copilot') {
+                    setStatus('GitHub Copilot OAuth pending implementation.');
                 } else {
                     setStep('input');
                 }
@@ -72,6 +83,13 @@ const App = () => {
                 </Box>
             )}
 
+            {step === 'oauth' && (
+                <Box flexDirection="column">
+                    <Text>Starting OAuth flow for <Text color="cyan" bold>{PROVIDERS[selectedIndex].name}</Text>...</Text>
+                    <Text marginTop={1}>Please check the URL printed below the TUI and follow instructions in browser.</Text>
+                </Box>
+            )}
+
             {step === 'input' && (
                 <Box flexDirection="column">
                     <Text>Configuring: <Text color="cyan" bold>{PROVIDERS[selectedIndex].name}</Text></Text>
@@ -94,5 +112,5 @@ const App = () => {
 };
 
 export async function runLoginTui() {
-    const { cleanup } = render(<App />);
+    render(<App />);
 }
