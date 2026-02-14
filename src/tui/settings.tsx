@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { render, Text, Box, useInput } from 'ink';
 import open from 'open';
+import readline from 'node:readline';
 import { saveAuth, loadAuth } from '../core/auth.js';
 import { getGeminiAuthUrl, exchangeGeminiCode } from '../utils/oauth/google-gemini.js';
 import { PROVIDER_MODELS } from '../core/models.js';
@@ -21,15 +22,18 @@ const GOOGLE_SUBMENU = [
     { id: 'antigravity', name: 'Antigravity (Sandbox)' }
 ];
 
-const App = () => {
-    const [step, setStep] = useState<'select' | 'google_submenu' | 'input' | 'oauth' | 'models' | 'done'>('select');
+interface AppProps {
+    initialStep?: any;
+    initialProviderId?: string;
+    onGoogleAuthTrigger?: (pId: string) => void;
+}
+
+const App = ({ initialStep = 'select', initialProviderId = '', onGoogleAuthTrigger }: AppProps) => {
+    const [step, setStep] = useState(initialStep);
     const [selectedIndex, setSelectedIndex] = useState(0);
     const [googleIndex, setGoogleIndex] = useState(0);
-    const [activeProviderId, setActiveProviderId] = useState('');
+    const [activeProviderId, setActiveProviderId] = useState(initialProviderId);
     const [apiKey, setApiKey] = useState('');
-    const [oauthUrl, setOauthUrl] = useState('');
-    const [verifier, setVerifier] = useState('');
-    const [authCode, setAuthCode] = useState('');
     const [status, setStatus] = useState('');
     
     const [availableModels, setAvailableModels] = useState<string[]>([]);
@@ -51,6 +55,10 @@ const App = () => {
             const dynamicModels = await fetchProviderModels(pId);
             const finalModels = [...new Set([...(PROVIDER_MODELS[pId] || []), ...dynamicModels])];
             fetchedModelsRef.current = finalModels;
+            if (step === 'models' || initialStep === 'models') {
+                setAvailableModels(finalModels);
+                setSelectedModels(finalModels);
+            }
         } catch (e) {} finally {
             setIsFetchingModels(false);
         }
@@ -82,38 +90,17 @@ const App = () => {
             if (key.downArrow) setGoogleIndex(Math.min(GOOGLE_SUBMENU.length - 1, googleIndex + 1));
             if (key.return) {
                 const sub = GOOGLE_SUBMENU[googleIndex];
-                setActiveProviderId(sub.id);
-                prefetchModels(sub.id);
                 if (sub.id === 'google') {
+                    setActiveProviderId('google');
+                    prefetchModels('google');
                     setStep('input');
                 } else {
-                    const { url, verifier } = await getGeminiAuthUrl();
-                    setOauthUrl(url);
-                    setVerifier(verifier);
-                    setStep('oauth');
-                    try { await open(url); } catch (e) {}
+                    if (onGoogleAuthTrigger) {
+                        onGoogleAuthTrigger(sub.id);
+                    }
                 }
             }
             if (key.escape) setStep('select');
-        } else if (step === 'oauth') {
-            if (key.return && authCode) {
-                try {
-                    await exchangeGeminiCode(authCode, verifier);
-                    const auth = loadAuth();
-                    if (activeProviderId !== 'google' && auth['google']) {
-                        auth[activeProviderId] = { ...auth['google'], type: 'oauth' };
-                        delete auth['google'];
-                        saveAuth(auth);
-                    }
-                    moveToModelSelection(activeProviderId);
-                } catch (e: any) {
-                    setStatus(`Error: ${e.message}`);
-                }
-            } else if (key.backspace || key.delete) {
-                setAuthCode(authCode.slice(0, -1));
-            } else if (input && !key.ctrl && !key.meta) {
-                setAuthCode(authCode + input);
-            }
         } else if (step === 'input') {
             if (key.return) {
                 moveToModelSelection(activeProviderId);
@@ -159,31 +146,10 @@ const App = () => {
     });
 
     useEffect(() => {
-        if (step === 'models' && !isFetchingModels && fetchedModelsRef.current && !availableModels.length) {
-            setAvailableModels(fetchedModelsRef.current);
-            setSelectedModels(fetchedModelsRef.current);
+        if (initialStep === 'models' && initialProviderId) {
+            prefetchModels(initialProviderId);
         }
-    }, [isFetchingModels, step, availableModels]);
-
-    if (step === 'oauth') {
-        return (
-            <Box flexDirection="column" padding={1}>
-                <Text>Please visit the following URL to authorize the application:</Text>
-                <Box paddingY={1} flexDirection="column">
-                    <Text bold color="#89B4FA">{oauthUrl}</Text>
-                </Box>
-                <Box flexDirection="row">
-                    <Text>Enter the authorization code: </Text>
-                    <Text color="#A6E3A1">{authCode}</Text>
-                    {showCursor && <Text backgroundColor="#CDD6F4" color="#1E1E2E"> </Text>}
-                </Box>
-                {status && <Box marginTop={1}><Text color="#F38BA8">{status}</Text></Box>}
-                <Box marginTop={1}>
-                    <Text color="#6C7086">(Press Enter to verify, Esc to cancel)</Text>
-                </Box>
-            </Box>
-        );
-    }
+    }, []);
 
     return (
         <Box flexDirection="column" padding={1} borderStyle="round" borderColor="#89B4FA">
@@ -290,5 +256,49 @@ const App = () => {
 };
 
 export async function runLoginTui() {
-    render(<App />);
+    const triggerGoogleAuth = async (providerId: string) => {
+        instance.unmount();
+        
+        const { url, verifier } = await getGeminiAuthUrl();
+        
+        process.stdout.write('\u001B[?1049l'); 
+        process.stdout.write('\u001B[2J\u001B[H'); 
+        
+        process.stdout.write('\nPlease visit the following URL to authorize the application:\n\n');
+        process.stdout.write(url + '\n\n');
+        
+        const rl = readline.createInterface({
+            input: process.stdin,
+            output: process.stdout
+        });
+        
+        try { await open(url); } catch (e) {}
+
+        const code = await new Promise<string>((resolve) => {
+            rl.question('Enter the authorization code: ', (ans) => {
+                rl.close();
+                resolve(ans.trim());
+            });
+        });
+
+        if (code) {
+            try {
+                await exchangeGeminiCode(code, verifier);
+                const auth = loadAuth();
+                const googleCreds = auth['google'];
+                if (googleCreds) {
+                    auth[providerId] = { ...googleCreds, type: 'oauth' };
+                    delete auth['google'];
+                    saveAuth(auth);
+                }
+                
+                instance = render(<App initialStep="models" initialProviderId={providerId} onGoogleAuthTrigger={triggerGoogleAuth} />);
+            } catch (e: any) {
+                console.error(`\n❌ Error: ${e.message}`);
+                process.exit(1);
+            }
+        }
+    };
+
+    let instance = render(<App onGoogleAuthTrigger={triggerGoogleAuth} />);
 }
