@@ -1,6 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { render, Text, Box, useInput } from 'ink';
-import Link from 'ink-link';
 import { saveAuth, loadAuth } from '../core/auth.js';
 import { getGeminiAuthUrl, exchangeGeminiCode } from '../utils/oauth/google-gemini.js';
 import { PROVIDER_MODELS } from '../core/models.js';
@@ -40,25 +39,17 @@ const App = () => {
             const finalModels = [...new Set([...(PROVIDER_MODELS[pId] || []), ...dynamicModels])];
             fetchedModelsRef.current = finalModels;
         } catch (e) {
-            console.error('Background fetch failed', e);
+            // silent fail
         } finally {
             setIsFetchingModels(false);
         }
     };
 
     const moveToModelSelection = () => {
-        if (fetchedModelsRef.current) {
-            setAvailableModels(fetchedModelsRef.current);
-            setSelectedModels(fetchedModelsRef.current);
-            setStep('models');
-        } else if (isFetchingModels) {
-            setStep('models');
-        } else {
-            const fallback = PROVIDER_MODELS[providerId] || [];
-            setAvailableModels(fallback);
-            setSelectedModels(fallback);
-            setStep('models');
-        }
+        const finalModels = fetchedModelsRef.current || PROVIDER_MODELS[providerId] || [];
+        setAvailableModels(finalModels);
+        setSelectedModels(finalModels);
+        setStep('models');
     };
 
     useInput(async (input, key) => {
@@ -181,15 +172,16 @@ const App = () => {
             )}
             {step === 'oauth' && (
                 <Box flexDirection="column">
-                    <Text>1. Click or copy the URL below to authorize:</Text>
+                    <Text>1. Copy and authorize via this URL:</Text>
                     <Box marginTop={1} marginBottom={1}>
-                        <Link url={oauthUrl}>
-                            <Text color="blue" bold>{oauthUrl}</Text>
-                        </Link>
+                        <Text color="blue" bold wrap="wrap">{oauthUrl}</Text>
                     </Box>
-                    <Text>2. Paste the full redirect URL (localhost:8085/...) below:</Text>
-                    <Box marginTop={1} paddingX={1} borderStyle="single" borderColor="gray">
-                        <Text color="green">{callbackUrl || 'Paste URL here...'}</Text>
+                    <Text>2. Paste the redirect URL (localhost:8085/...) here:</Text>
+                    <Box marginTop={1} paddingX={1} borderStyle="single" borderColor="cyan">
+                        <Text color={callbackUrl ? 'green' : 'gray'}>
+                            {callbackUrl || 'Type or paste here...'}
+                            <Text color="cyan" backgroundColor="white"> </Text>
+                        </Text>
                     </Box>
                     {status && <Box marginTop={1}><Text color="red">{status}</Text></Box>}
                     <Box marginTop={1}>
@@ -205,9 +197,12 @@ const App = () => {
             {step === 'input' && (
                 <Box flexDirection="column">
                     <Text>Configuring: <Text color="cyan" bold>{PROVIDERS[selectedIndex].name}</Text></Text>
-                    <Box marginTop={1}>
-                        <Text>Enter API Key: </Text>
-                        <Text color="green">{'*'.repeat(apiKey.length)}</Text>
+                    <Box marginTop={1} paddingX={1} borderStyle="single" borderColor="cyan">
+                        <Text>API Key: </Text>
+                        <Text color="green">
+                            {'*'.repeat(apiKey.length)}
+                            <Text color="cyan" backgroundColor="white"> </Text>
+                        </Text>
                     </Box>
                     <Box marginTop={1}>
                         <Text color="gray">(Press Enter to continue)</Text>
