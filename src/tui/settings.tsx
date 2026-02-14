@@ -73,20 +73,28 @@ const App = () => {
             {step === 'select' && (
                 <Box flexDirection="column">
                     <Text>Select a Provider to configure (Use arrows, Enter to confirm):</Text>
-                    {PROVIDERS.map((provider, index) => (
-                        <Text key={provider.id} color={index === selectedIndex ? 'cyan' : undefined}>
-                            {index === selectedIndex ? ' > ' : '   '}
-                            {provider.name}
-                        </Text>
-                    ))}
-                    {status && <Text color="red" marginTop={1}>{status}</Text>}
+                    <Box flexDirection="column" marginTop={1}>
+                        {PROVIDERS.map((provider, index) => (
+                            <Text key={provider.id} color={index === selectedIndex ? 'cyan' : undefined}>
+                                {index === selectedIndex ? ' > ' : '   '}
+                                {provider.name}
+                            </Text>
+                        ))}
+                    </Box>
+                    {status && (
+                        <Box marginTop={1}>
+                            <Text color="red">{status}</Text>
+                        </Box>
+                    )}
                 </Box>
             )}
 
             {step === 'oauth' && (
                 <Box flexDirection="column">
                     <Text>Starting OAuth flow for <Text color="cyan" bold>{PROVIDERS[selectedIndex].name}</Text>...</Text>
-                    <Text marginTop={1}>Please check the URL printed below the TUI and follow instructions in browser.</Text>
+                    <Box marginTop={1}>
+                        <Text>Please check the URL printed below the TUI and follow instructions in browser.</Text>
+                    </Box>
                 </Box>
             )}
 
@@ -97,14 +105,18 @@ const App = () => {
                         <Text>Enter API Key: </Text>
                         <Text color="green">{'*'.repeat(apiKey.length)}</Text>
                     </Box>
-                    <Text color="gray" marginTop={1}>(Press Enter to save, Esc to cancel)</Text>
+                    <Box marginTop={1}>
+                        <Text color="gray">(Press Enter to save, Esc to cancel)</Text>
+                    </Box>
                 </Box>
             )}
 
             {step === 'done' && (
                 <Box flexDirection="column">
                     <Text color="green" bold>✅ Successfully saved credentials for {PROVIDERS[selectedIndex].name}!</Text>
-                    <Text marginTop={1}>Press any key to exit.</Text>
+                    <Box marginTop={1}>
+                        <Text>Press any key to exit.</Text>
+                    </Box>
                 </Box>
             )}
         </Box>
