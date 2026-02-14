@@ -22,7 +22,6 @@ const App = () => {
     const [callbackUrl, setCallbackUrl] = useState('');
     const [status, setStatus] = useState('');
     
-    // Model selection state
     const [selectedModels, setSelectedModels] = useState<string[]>([]);
     const [modelCursor, setModelCursor] = useState(0);
 
@@ -49,11 +48,23 @@ const App = () => {
         } else if (step === 'oauth') {
             if (key.return && callbackUrl) {
                 try {
-                    const urlObj = new URL(callbackUrl.trim());
-                    const code = urlObj.searchParams.get('code');
-                    const state = urlObj.searchParams.get('state');
-                    if (!code) throw new Error('No code found');
-                    if (state !== verifier) throw new Error('State mismatch');
+                    const urlStr = callbackUrl.trim();
+                    let code = '';
+                    let state = '';
+                    
+                    if (urlStr.startsWith('http')) {
+                        const urlObj = new URL(urlStr);
+                        code = urlObj.searchParams.get('code') || '';
+                        state = urlObj.searchParams.get('state') || '';
+                    } else {
+                        const params = new URLSearchParams(urlStr.includes('?') ? urlStr.split('?')[1] : urlStr);
+                        code = params.get('code') || '';
+                        state = params.get('state') || '';
+                    }
+                    
+                    if (!code) throw new Error('No code found in input');
+                    if (state && state !== verifier) throw new Error('State mismatch (security check failed)');
+                    
                     await exchangeGeminiCode(code, verifier);
                     setSelectedModels(availableModels);
                     setStep('models');
@@ -138,11 +149,13 @@ const App = () => {
 
             {step === 'oauth' && (
                 <Box flexDirection="column">
-                    <Text>1. Open this URL in browser:</Text>
-                    <Box paddingLeft={3} marginTop={1} marginBottom={1}><Text color="blue" underline>{oauthUrl}</Text></Box>
+                    <Text>1. Copy and open this URL in your browser to login:</Text>
+                    <Box marginTop={1} marginBottom={1} paddingX={1} borderStyle="single" borderColor="blue">
+                        <Text color="blue" wrap="wrap">{oauthUrl}</Text>
+                    </Box>
                     <Text>2. Paste the full redirect URL here:</Text>
                     <Box marginTop={1} paddingLeft={1} borderStyle="single" borderColor="gray">
-                        <Text color="green">{callbackUrl || '...'}</Text>
+                        <Text color="green" wrap="wrap">{callbackUrl || '...'}</Text>
                     </Box>
                     {status && <Box marginTop={1}><Text color="red">{status}</Text></Box>}
                     <Box marginTop={1}>
