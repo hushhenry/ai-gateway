@@ -1,35 +1,40 @@
-import { createServer } from 'node:http';
 import { generatePKCE } from './pkce.js';
 import { saveAuth, loadAuth } from '../../core/auth.js';
 
+// Encoded Google OAuth credentials from pi-mono / gemini-cli
 const _p1 = "NjgxMjU1ODA5Mzk1LW9vOGZ0Mm9wcmRybnA5ZTNhcWY2YXYzaG1kaWIxMzVq";
 const _p2 = "LmFwcHMuZ29vZ2xldXNlcmNvbnRlbnQuY29t";
 const _s1 = "R09DU1BYLTR1SGdNUG0tMW83U2stZ2VWNkN1NWNsWEZzeGw=";
 
 const CLIENT_ID = atob(_p1 + _p2);
 const CLIENT_SECRET = atob(_s1);
-const REDIRECT_URI = "http://localhost:8085/oauth2callback";
-const SCOPES = [
-    "https://www.googleapis.com/auth/cloud-platform",
-    "https://www.googleapis.com/auth/userinfo.email",
-    "https://www.googleapis.com/auth/userinfo.profile",
-];
+
+// User-code flow redirect URI used by gemini-cli
+const REDIRECT_URI_AUTHCODE = "https://codeassist.google.com/authcode";
+
 const AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth";
 const TOKEN_URL = "https://oauth2.googleapis.com/token";
 
 export async function getGeminiAuthUrl() {
     const { verifier, challenge } = await generatePKCE();
+    const state = Math.random().toString(36).substring(2, 15); // Random state for security
+    
     const authParams = new URLSearchParams({
         client_id: CLIENT_ID,
         response_type: "code",
-        redirect_uri: REDIRECT_URI,
-        scope: SCOPES.join(" "),
+        redirect_uri: REDIRECT_URI_AUTHCODE,
+        scope: [
+            "https://www.googleapis.com/auth/cloud-platform",
+            "https://www.googleapis.com/auth/userinfo.email",
+            "https://www.googleapis.com/auth/userinfo.profile"
+        ].join(" "),
         code_challenge: challenge,
         code_challenge_method: "S256",
-        state: verifier,
+        state: state,
         access_type: "offline",
         prompt: "consent",
     });
+    
     return {
         url: `${AUTH_URL}?${authParams.toString()}`,
         verifier
@@ -43,15 +48,16 @@ export async function exchangeGeminiCode(code: string, verifier: string) {
         body: new URLSearchParams({
             client_id: CLIENT_ID,
             client_secret: CLIENT_SECRET,
-            code,
+            code: code.trim(),
             grant_type: "authorization_code",
-            redirect_uri: REDIRECT_URI,
+            redirect_uri: REDIRECT_URI_AUTHCODE,
             code_verifier: verifier,
         }),
     });
 
     if (!tokenResponse.ok) {
-        throw new Error(`Token exchange failed: ${await tokenResponse.text()}`);
+        const errorText = await tokenResponse.text();
+        throw new Error(`Token exchange failed: ${errorText}`);
     }
 
     const tokenData = await tokenResponse.json() as any;
@@ -60,7 +66,7 @@ export async function exchangeGeminiCode(code: string, verifier: string) {
         apiKey: tokenData.access_token,
         type: 'oauth',
         refresh: tokenData.refresh_token,
-        expires: Date.now() + tokenData.expires_in * 1000,
+        expires: Date.now() + (tokenData.expires_in * 1000),
     };
     saveAuth(auth);
 }

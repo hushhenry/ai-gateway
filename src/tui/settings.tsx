@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { render, Text, Box, useInput } from 'ink';
+import open from 'open';
 import { saveAuth, loadAuth } from '../core/auth.js';
 import { getGeminiAuthUrl, exchangeGeminiCode } from '../utils/oauth/google-gemini.js';
 import { PROVIDER_MODELS } from '../core/models.js';
@@ -20,7 +21,7 @@ const App = () => {
     const [apiKey, setApiKey] = useState('');
     const [oauthUrl, setOauthUrl] = useState('');
     const [verifier, setVerifier] = useState('');
-    const [callbackUrl, setCallbackUrl] = useState('');
+    const [authCode, setAuthCode] = useState('');
     const [status, setStatus] = useState('');
     
     const [availableModels, setAvailableModels] = useState<string[]>([]);
@@ -31,7 +32,6 @@ const App = () => {
 
     const fetchedModelsRef = useRef<string[] | null>(null);
 
-    // Blinking cursor effect
     useEffect(() => {
         const timer = setInterval(() => setShowCursor(s => !s), 500);
         return () => clearInterval(timer);
@@ -45,7 +45,7 @@ const App = () => {
             const dynamicModels = await fetchProviderModels(pId);
             const finalModels = [...new Set([...(PROVIDER_MODELS[pId] || []), ...dynamicModels])];
             fetchedModelsRef.current = finalModels;
-        } catch (e) { /* silent */ } finally {
+        } catch (e) {} finally {
             setIsFetchingModels(false);
         }
     };
@@ -69,6 +69,9 @@ const App = () => {
                     setOauthUrl(url);
                     setVerifier(verifier);
                     setStep('oauth');
+                    try {
+                        await open(url);
+                    } catch (e) {}
                 } else if (provider.id === 'github-copilot') {
                     setStatus('GitHub Copilot OAuth pending.');
                 } else {
@@ -76,31 +79,17 @@ const App = () => {
                 }
             }
         } else if (step === 'oauth') {
-            if (key.return && callbackUrl) {
+            if (key.return && authCode) {
                 try {
-                    const urlStr = callbackUrl.trim();
-                    let code = '';
-                    let state = '';
-                    if (urlStr.startsWith('http')) {
-                        const urlObj = new URL(urlStr);
-                        code = urlObj.searchParams.get('code') || '';
-                        state = urlObj.searchParams.get('state') || '';
-                    } else {
-                        const params = new URLSearchParams(urlStr.includes('?') ? urlStr.split('?')[1] : urlStr);
-                        code = params.get('code') || '';
-                        state = params.get('state') || '';
-                    }
-                    if (!code) throw new Error('No code found');
-                    if (state && state !== verifier) throw new Error('State mismatch');
-                    await exchangeGeminiCode(code, verifier);
+                    await exchangeGeminiCode(authCode, verifier);
                     moveToModelSelection();
                 } catch (e: any) {
                     setStatus(`Error: ${e.message}`);
                 }
             } else if (key.backspace || key.delete) {
-                setCallbackUrl(callbackUrl.slice(0, -1));
+                setAuthCode(authCode.slice(0, -1));
             } else if (input && !key.ctrl && !key.meta) {
-                setCallbackUrl(callbackUrl + input);
+                setAuthCode(authCode + input);
             }
         } else if (step === 'input') {
             if (key.return) {
@@ -156,8 +145,35 @@ const App = () => {
         }
     }, [isFetchingModels, step, availableModels]);
 
+    if (step === 'oauth') {
+        return (
+            <Box flexDirection="column" padding={1}>
+                <Text color="#CDD6F4">Please visit the following URL to authorize the application:</Text>
+                <Box marginTop={1} marginBottom={1}>
+                    <Text color="#89B4FA" bold>{oauthUrl}</Text>
+                </Box>
+                
+                <Box flexDirection="row">
+                    <Text color="#CDD6F4">Enter the authorization code: </Text>
+                    <Text color="#A6E3A1">{authCode}</Text>
+                    {showCursor && <Text backgroundColor="#CDD6F4" color="#1E1E2E"> </Text>}
+                </Box>
+                
+                {status && <Box marginTop={1}><Text color="#F38BA8">{status}</Text></Box>}
+                {isFetchingModels && (
+                    <Box marginTop={1}>
+                        <Text color="#F9E2AF">⏳ (Background) Fetching model list...</Text>
+                    </Box>
+                )}
+                <Box marginTop={1}>
+                    <Text color="#6C7086">(Press Enter to verify, Esc to cancel)</Text>
+                </Box>
+            </Box>
+        );
+    }
+
     return (
-        <Box flexDirection="column" padding={1}>
+        <Box flexDirection="column" padding={1} borderStyle="round" borderColor="cyan">
             <Box marginBottom={1}>
                 <Text bold color="#89B4FA">🚀 AI Gateway Configuration</Text>
             </Box>
@@ -181,36 +197,13 @@ const App = () => {
                 </Box>
             )}
 
-            {step === 'oauth' && (
-                <Box flexDirection="column">
-                    <Text color="#CDD6F4">1. Open this URL in browser:</Text>
-                    <Box marginTop={1} marginBottom={1}>
-                        <Text color="#89B4FA" underline wrap="wrap">{oauthUrl}</Text>
-                    </Box>
-                    <Text color="#CDD6F4">2. Paste the redirect URL here:</Text>
-                    <Box marginTop={1} paddingX={1} borderStyle="round" borderColor="#89B4FA" minHeight={3}>
-                        <Box flexGrow={1} flexDirection="row">
-                            {!callbackUrl && <Text color="#6C7086">Paste URL from browser...</Text>}
-                            <Text color="#A6E3A1" wrap="wrap">
-                                {callbackUrl}
-                            </Text>
-                            {showCursor && <Text backgroundColor="#CDD6F4" color="#1E1E2E"> </Text>}
-                        </Box>
-                    </Box>
-                    {status && <Box marginTop={1}><Text color="#F38BA8">{status}</Text></Box>}
-                    <Box marginTop={1}>
-                        <Text color="#6C7086">(Press Enter to verify, Esc to cancel)</Text>
-                    </Box>
-                </Box>
-            )}
-
             {step === 'input' && (
                 <Box flexDirection="column">
                     <Text color="#CDD6F4">Configuring: <Text color="#89B4FA" bold>{PROVIDERS[selectedIndex].name}</Text></Text>
                     <Box marginTop={1} paddingX={1} borderStyle="round" borderColor="#89B4FA" minHeight={3}>
                         <Box flexDirection="row">
                             <Text color="#CDD6F4">API Key: </Text>
-                            {!apiKey && <Text color="#6C7086">Type your key here...</Text>}
+                            {!apiKey && <Text color="#6C7086">Type or paste key here...</Text>}
                             <Text color="#A6E3A1">
                                 {'*'.repeat(apiKey.length)}
                             </Text>
@@ -228,7 +221,7 @@ const App = () => {
                     {isFetchingModels && !availableModels.length ? (
                         <Text color="#F9E2AF">Loading model list...</Text>
                     ) : (
-                        <>
+                        <Box flexDirection="column">
                             <Text color="#CDD6F4">Enable models for <Text color="#89B4FA" bold>{PROVIDERS[selectedIndex].name}</Text>:</Text>
                             <Box flexDirection="column" marginTop={1}>
                                 {availableModels.map((model, index) => (
@@ -253,7 +246,7 @@ const App = () => {
                             <Box marginTop={1}>
                                 <Text color="#6C7086">(Space to toggle, Enter to save)</Text>
                             </Box>
-                        </>
+                        </Box>
                     )}
                 </Box>
             )}
