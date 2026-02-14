@@ -16,12 +16,22 @@ export class AiGateway {
     private setupRoutes() {
         this.app.get('/v1/models', async (c) => {
             const auth = loadAuth(this.configPath);
-            const models = Object.keys(auth).map(id => ({
-                id,
-                object: 'model',
-                created: Date.now(),
-                owned_by: 'ai-gateway'
-            }));
+            const models: any[] = [];
+            
+            for (const providerId in auth) {
+                const creds = auth[providerId];
+                const enabledModels = creds.enabledModels || [];
+                
+                for (const modelId of enabledModels) {
+                    models.push({
+                        id: `${providerId}:${modelId}`,
+                        object: 'model',
+                        created: Date.now(),
+                        owned_by: 'ai-gateway'
+                    });
+                }
+            }
+            
             return c.json({ object: 'list', data: models });
         });
 

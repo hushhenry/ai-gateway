@@ -11,6 +11,7 @@ export interface Credentials {
     refresh?: string;
     expires?: number;
     projectId?: string;
+    enabledModels?: string[];
 }
 
 export function saveAuth(auth: Record<string, Credentials>, configPath?: string): void {
