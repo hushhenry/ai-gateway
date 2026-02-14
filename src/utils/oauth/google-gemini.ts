@@ -16,22 +16,25 @@ export async function getGeminiAuthUrl() {
     const { verifier, challenge } = await generatePKCE();
     const state = Math.random().toString(36).substring(2, 15);
     
-    const authParams = new URLSearchParams({
-        client_id: CLIENT_ID,
-        response_type: "code",
-        redirect_uri: REDIRECT_URI_AUTHCODE,
-        scope: "https://www.googleapis.com/auth/cloud-platform https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile",
-        code_challenge: challenge,
-        code_challenge_method: "S256",
-        state: state,
-        access_type: "offline",
-        prompt: "consent",
-    });
+    // Explicitly use %20 for spaces in scope to ensure terminal-friendly URL
+    const scopeStr = [
+        "https://www.googleapis.com/auth/cloud-platform",
+        "https://www.googleapis.com/auth/userinfo.email",
+        "https://www.googleapis.com/auth/userinfo.profile"
+    ].join("%20");
+
+    const url = `${AUTH_URL}?` + 
+        `client_id=${CLIENT_ID}&` +
+        `response_type=code&` +
+        `redirect_uri=${encodeURIComponent(REDIRECT_URI_AUTHCODE)}&` +
+        `scope=${scopeStr}&` +
+        `code_challenge=${challenge}&` +
+        `code_challenge_method=S256&` +
+        `state=${state}&` +
+        `access_type=offline&` +
+        `prompt=consent`;
     
-    return {
-        url: `${AUTH_URL}?${authParams.toString()}`,
-        verifier
-    };
+    return { url, verifier };
 }
 
 export async function exchangeGeminiCode(code: string, verifier: string) {

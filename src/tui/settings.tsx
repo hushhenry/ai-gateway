@@ -261,11 +261,13 @@ export async function runLoginTui() {
         
         const { url, verifier } = await getGeminiAuthUrl();
         
+        // EXIT ALTERNATE SCREEN & RAW WRITE - EXACTLY AS GEMINI CLI DOES
         process.stdout.write('\u001B[?1049l'); 
         process.stdout.write('\u001B[2J\u001B[H'); 
         
         process.stdout.write('\nPlease visit the following URL to authorize the application:\n\n');
-        process.stdout.write(url + '\n\n');
+        process.stdout.write(url);
+        process.stdout.write('\n\n');
         
         const rl = readline.createInterface({
             input: process.stdin,
