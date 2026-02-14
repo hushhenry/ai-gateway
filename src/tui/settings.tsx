@@ -1,8 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { render, Text, Box, useInput } from 'ink';
 import { saveAuth, loadAuth } from '../core/auth.js';
 import { getGeminiAuthUrl, exchangeGeminiCode } from '../utils/oauth/google-gemini.js';
 import { PROVIDER_MODELS } from '../core/models.js';
+import { fetchProviderModels } from '../core/discovery.js';
 
 const PROVIDERS = [
     { id: 'openai', name: 'OpenAI' },
@@ -14,7 +15,7 @@ const PROVIDERS = [
 ];
 
 const App = () => {
-    const [step, setStep] = useState<'select' | 'input' | 'oauth' | 'models' | 'done'>('select');
+    const [step, setStep] = useState<'select' | 'input' | 'oauth' | 'loading_models' | 'models' | 'done'>('select');
     const [selectedIndex, setSelectedIndex] = useState(0);
     const [apiKey, setApiKey] = useState('');
     const [oauthUrl, setOauthUrl] = useState('');
@@ -22,11 +23,21 @@ const App = () => {
     const [callbackUrl, setCallbackUrl] = useState('');
     const [status, setStatus] = useState('');
     
+    const [availableModels, setAvailableModels] = useState<string[]>([]);
     const [selectedModels, setSelectedModels] = useState<string[]>([]);
     const [modelCursor, setModelCursor] = useState(0);
 
     const providerId = PROVIDERS[selectedIndex]?.id;
-    const availableModels = PROVIDER_MODELS[providerId] || [];
+
+    const startModelSelection = async (pId: string) => {
+        setStep('loading_models');
+        const dynamicModels = await fetchProviderModels(pId);
+        // Merge with hardcoded ones as fallback
+        const finalModels = [...new Set([...(PROVIDER_MODELS[pId] || []), ...dynamicModels])];
+        setAvailableModels(finalModels);
+        setSelectedModels(finalModels); // Default all on
+        setStep('models');
+    };
 
     useInput(async (input, key) => {
         if (step === 'select') {
@@ -51,7 +62,6 @@ const App = () => {
                     const urlStr = callbackUrl.trim();
                     let code = '';
                     let state = '';
-                    
                     if (urlStr.startsWith('http')) {
                         const urlObj = new URL(urlStr);
                         code = urlObj.searchParams.get('code') || '';
@@ -61,13 +71,10 @@ const App = () => {
                         code = params.get('code') || '';
                         state = params.get('state') || '';
                     }
-                    
-                    if (!code) throw new Error('No code found in input');
-                    if (state && state !== verifier) throw new Error('State mismatch (security check failed)');
-                    
+                    if (!code) throw new Error('No code found');
+                    if (state && state !== verifier) throw new Error('State mismatch');
                     await exchangeGeminiCode(code, verifier);
-                    setSelectedModels(availableModels);
-                    setStep('models');
+                    await startModelSelection('google');
                 } catch (e: any) {
                     setStatus(`Error: ${e.message}`);
                 }
@@ -78,8 +85,7 @@ const App = () => {
             }
         } else if (step === 'input') {
             if (key.return) {
-                setSelectedModels(availableModels);
-                setStep('models');
+                await startModelSelection(providerId);
             } else if (key.backspace || key.delete) {
                 setApiKey(apiKey.slice(0, -1));
             } else if (input && !key.ctrl && !key.meta) {
@@ -172,8 +178,14 @@ const App = () => {
                         <Text color="green">{'*'.repeat(apiKey.length)}</Text>
                     </Box>
                     <Box marginTop={1}>
-                        <Text color="gray">(Press Enter to continue to model selection)</Text>
+                        <Text color="gray">(Press Enter to fetch models)</Text>
                     </Box>
+                </Box>
+            )}
+
+            {step === 'loading_models' && (
+                <Box flexDirection="column">
+                    <Text color="yellow">Fetching available models for {PROVIDERS[selectedIndex].name}...</Text>
                 </Box>
             )}
 
