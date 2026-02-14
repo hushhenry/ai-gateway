@@ -4,9 +4,9 @@ import { GoogleGenerativeAIProvider } from '@ai-sdk/google';
 import { loadAuth, getCredentials } from './auth.js';
 
 export async function getProvider(modelId: string, configPath?: string) {
-    // Basic routing logic: provider:model
-    const [providerBrand, ...modelNameParts] = modelId.split(':');
-    const modelName = modelNameParts.join(':');
+    // Basic routing logic: provider/model
+    const [providerBrand, ...modelNameParts] = modelId.split('/');
+    const modelName = modelNameParts.join('/');
     const creds = await getCredentials(providerBrand, configPath);
 
     if (!creds) throw new Error(`No credentials found for provider: ${providerBrand}`);

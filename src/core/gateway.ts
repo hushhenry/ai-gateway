@@ -24,7 +24,7 @@ export class AiGateway {
                 
                 for (const modelId of enabledModels) {
                     models.push({
-                        id: `${providerId}:${modelId}`,
+                        id: `${providerId}/${modelId}`,
                         object: 'model',
                         created: Date.now(),
                         owned_by: 'ai-gateway'
