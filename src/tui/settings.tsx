@@ -68,6 +68,11 @@ const App = () => {
                     const { url, verifier } = await getGeminiAuthUrl();
                     setOauthUrl(url);
                     setVerifier(verifier);
+                    
+                    process.stdout.write('\u001B[2J\u001B[H');
+                    process.stdout.write('\nPlease visit the following URL to authorize the application:\n\n');
+                    process.stdout.write(`${url}\n\n`);
+                    
                     setStep('oauth');
                     try {
                         await open(url);
@@ -147,18 +152,12 @@ const App = () => {
 
     if (step === 'oauth') {
         return (
-            <Box flexDirection="column" padding={1}>
-                <Text color="#CDD6F4">Please visit the following URL to authorize the application:</Text>
-                <Box marginTop={1} marginBottom={1}>
-                    <Text color="#89B4FA" bold>{oauthUrl}</Text>
-                </Box>
-                
+            <Box flexDirection="column">
                 <Box flexDirection="row">
                     <Text color="#CDD6F4">Enter the authorization code: </Text>
                     <Text color="#A6E3A1">{authCode}</Text>
                     {showCursor && <Text backgroundColor="#CDD6F4" color="#1E1E2E"> </Text>}
                 </Box>
-                
                 {status && <Box marginTop={1}><Text color="#F38BA8">{status}</Text></Box>}
                 {isFetchingModels && (
                     <Box marginTop={1}>
@@ -173,7 +172,7 @@ const App = () => {
     }
 
     return (
-        <Box flexDirection="column" padding={1} borderStyle="round" borderColor="cyan">
+        <Box flexDirection="column" padding={1} borderStyle="round" borderColor="#89B4FA">
             <Box marginBottom={1}>
                 <Text bold color="#89B4FA">🚀 AI Gateway Configuration</Text>
             </Box>
