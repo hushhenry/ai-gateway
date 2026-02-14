@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { render, Text, Box, useInput } from 'ink';
 import { saveAuth, loadAuth } from '../core/auth.js';
-import { loginGeminiCli } from '../utils/oauth/google-gemini.js';
+import { getGeminiAuthUrl, exchangeGeminiCode } from '../utils/oauth/google-gemini.js';
 
 const PROVIDERS = [
     { id: 'openai', name: 'OpenAI' },
@@ -16,6 +16,9 @@ const App = () => {
     const [step, setStep] = useState<'select' | 'input' | 'oauth' | 'done'>('select');
     const [selectedIndex, setSelectedIndex] = useState(0);
     const [apiKey, setApiKey] = useState('');
+    const [oauthUrl, setOauthUrl] = useState('');
+    const [verifier, setVerifier] = useState('');
+    const [callbackUrl, setCallbackUrl] = useState('');
     const [status, setStatus] = useState('');
 
     useInput(async (input, key) => {
@@ -29,19 +32,35 @@ const App = () => {
             if (key.return) {
                 const provider = PROVIDERS[selectedIndex];
                 if (provider.id === 'google') {
+                    const { url, verifier } = await getGeminiAuthUrl();
+                    setOauthUrl(url);
+                    setVerifier(verifier);
                     setStep('oauth');
-                    try {
-                        await loginGeminiCli();
-                        setStep('done');
-                    } catch (e: any) {
-                        setStatus(`OAuth failed: ${e.message}`);
-                        setStep('select');
-                    }
                 } else if (provider.id === 'github-copilot') {
                     setStatus('GitHub Copilot OAuth pending implementation.');
                 } else {
                     setStep('input');
                 }
+            }
+        } else if (step === 'oauth') {
+            if (key.return && callbackUrl) {
+                try {
+                    const urlObj = new URL(callbackUrl.trim());
+                    const code = urlObj.searchParams.get('code');
+                    const state = urlObj.searchParams.get('state');
+                    
+                    if (!code) throw new Error('No code found in URL');
+                    if (state !== verifier) throw new Error('State mismatch (security check failed)');
+                    
+                    await exchangeGeminiCode(code, verifier);
+                    setStep('done');
+                } catch (e: any) {
+                    setStatus(`Error: ${e.message}`);
+                }
+            } else if (key.backspace || key.delete) {
+                setCallbackUrl(callbackUrl.slice(0, -1));
+            } else if (input && !key.ctrl && !key.meta) {
+                setCallbackUrl(callbackUrl + input);
             }
         } else if (step === 'input') {
             if (key.return) {
@@ -91,9 +110,21 @@ const App = () => {
 
             {step === 'oauth' && (
                 <Box flexDirection="column">
-                    <Text>Starting OAuth flow for <Text color="cyan" bold>{PROVIDERS[selectedIndex].name}</Text>...</Text>
+                    <Text>1. Open this URL in your browser to login:</Text>
+                    <Box paddingLeft={3} marginTop={1} marginBottom={1}>
+                        <Text color="blue" underline>{oauthUrl}</Text>
+                    </Box>
+                    <Text>2. After login, paste the full redirect URL (localhost:8085/...) here:</Text>
+                    <Box marginTop={1} paddingLeft={3} borderStyle="single" borderColor="gray">
+                        <Text color="green">{callbackUrl || 'Paste URL here...'}</Text>
+                    </Box>
+                    {status && (
+                        <Box marginTop={1}>
+                            <Text color="red">{status}</Text>
+                        </Box>
+                    )}
                     <Box marginTop={1}>
-                        <Text>Please check the URL printed below the TUI and follow instructions in browser.</Text>
+                        <Text color="gray">(Press Enter to verify, Esc to cancel)</Text>
                     </Box>
                 </Box>
             )}
@@ -115,7 +146,7 @@ const App = () => {
                 <Box flexDirection="column">
                     <Text color="green" bold>✅ Successfully saved credentials for {PROVIDERS[selectedIndex].name}!</Text>
                     <Box marginTop={1}>
-                        <Text>Press any key to exit.</Text>
+                        <Text>Press Enter or any key to exit.</Text>
                     </Box>
                 </Box>
             )}
