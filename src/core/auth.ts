@@ -3,7 +3,6 @@ import { join } from 'path';
 import { homedir } from 'os';
 
 const DEFAULT_CONFIG_DIR = join(homedir(), '.config', 'ai-gateway');
-const PI_CONFIG_DIR = join(homedir(), '.config', 'pi');
 const AUTH_FILE = 'auth.json';
 
 export interface Credentials {
@@ -16,7 +15,6 @@ export function loadAuth(configPath?: string): Record<string, Credentials> {
     const pathsToCheck = [];
     if (configPath) pathsToCheck.push(configPath);
     pathsToCheck.push(join(DEFAULT_CONFIG_DIR, AUTH_FILE));
-    pathsToCheck.push(join(PI_CONFIG_DIR, AUTH_FILE));
 
     for (const p of pathsToCheck) {
         if (existsSync(p)) {
