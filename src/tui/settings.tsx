@@ -7,18 +7,25 @@ import { PROVIDER_MODELS } from '../core/models.js';
 import { fetchProviderModels } from '../core/discovery.js';
 
 const PROVIDERS = [
-    { id: 'openai', name: 'OpenAI (API Key)' },
-    { id: 'anthropic', name: 'Anthropic (API Key)' },
-    { id: 'google', name: 'Google Gemini (API Key)' },
-    { id: 'gemini-cli', name: 'Google Gemini (OAuth / gemini-cli)' },
-    { id: 'antigravity', name: 'Antigravity (OAuth / Sandbox)' },
-    { id: 'deepseek', name: 'DeepSeek (API Key)' },
-    { id: 'openrouter', name: 'OpenRouter (API Key)' }
+    { id: 'openai', name: 'OpenAI' },
+    { id: 'anthropic', name: 'Anthropic' },
+    { id: 'google', name: 'Google (Gemini)', hasSubmenu: true },
+    { id: 'github-copilot', name: 'GitHub Copilot (OAuth)' },
+    { id: 'deepseek', name: 'DeepSeek' },
+    { id: 'openrouter', name: 'OpenRouter' }
+];
+
+const GOOGLE_SUBMENU = [
+    { id: 'google', name: 'Standard (API Key)' },
+    { id: 'gemini-cli', name: 'Gemini CLI (OAuth)' },
+    { id: 'antigravity', name: 'Antigravity (Sandbox)' }
 ];
 
 const App = () => {
-    const [step, setStep] = useState<'select' | 'input' | 'oauth' | 'models' | 'done'>('select');
+    const [step, setStep] = useState<'select' | 'google_submenu' | 'input' | 'oauth' | 'models' | 'done'>('select');
     const [selectedIndex, setSelectedIndex] = useState(0);
+    const [googleIndex, setGoogleIndex] = useState(0);
+    const [activeProviderId, setActiveProviderId] = useState('');
     const [apiKey, setApiKey] = useState('');
     const [oauthUrl, setOauthUrl] = useState('');
     const [verifier, setVerifier] = useState('');
@@ -38,8 +45,6 @@ const App = () => {
         return () => clearInterval(timer);
     }, []);
 
-    const providerId = PROVIDERS[selectedIndex]?.id;
-
     const prefetchModels = async (pId: string) => {
         setIsFetchingModels(true);
         try {
@@ -51,8 +56,8 @@ const App = () => {
         }
     };
 
-    const moveToModelSelection = () => {
-        const finalModels = fetchedModelsRef.current || PROVIDER_MODELS[providerId] || [];
+    const moveToModelSelection = (pId: string) => {
+        const finalModels = fetchedModelsRef.current || PROVIDER_MODELS[pId] || [];
         setAvailableModels(finalModels);
         setSelectedModels(finalModels);
         setStep('models');
@@ -64,32 +69,43 @@ const App = () => {
             if (key.downArrow) setSelectedIndex(Math.min(PROVIDERS.length - 1, selectedIndex + 1));
             if (key.return) {
                 const provider = PROVIDERS[selectedIndex];
-                prefetchModels(provider.id);
-                if (provider.id === 'gemini-cli' || provider.id === 'antigravity') {
+                if (provider.id === 'google') {
+                    setStep('google_submenu');
+                } else {
+                    setActiveProviderId(provider.id);
+                    prefetchModels(provider.id);
+                    setStep('input');
+                }
+            }
+        } else if (step === 'google_submenu') {
+            if (key.upArrow) setGoogleIndex(Math.max(0, googleIndex - 1));
+            if (key.downArrow) setGoogleIndex(Math.min(GOOGLE_SUBMENU.length - 1, googleIndex + 1));
+            if (key.return) {
+                const sub = GOOGLE_SUBMENU[googleIndex];
+                setActiveProviderId(sub.id);
+                prefetchModels(sub.id);
+                if (sub.id === 'google') {
+                    setStep('input');
+                } else {
                     const { url, verifier } = await getGeminiAuthUrl();
                     setOauthUrl(url);
                     setVerifier(verifier);
                     setStep('oauth');
-                    try {
-                        await open(url);
-                    } catch (e) {}
-                } else {
-                    setStep('input');
+                    try { await open(url); } catch (e) {}
                 }
             }
+            if (key.escape) setStep('select');
         } else if (step === 'oauth') {
             if (key.return && authCode) {
                 try {
                     await exchangeGeminiCode(authCode, verifier);
                     const auth = loadAuth();
-                    const provider = PROVIDERS[selectedIndex];
-                    const googleCreds = auth['google'];
-                    if (googleCreds) {
-                        auth[provider.id] = { ...googleCreds, type: 'oauth' };
+                    if (activeProviderId !== 'google' && auth['google']) {
+                        auth[activeProviderId] = { ...auth['google'], type: 'oauth' };
                         delete auth['google'];
                         saveAuth(auth);
                     }
-                    moveToModelSelection();
+                    moveToModelSelection(activeProviderId);
                 } catch (e: any) {
                     setStatus(`Error: ${e.message}`);
                 }
@@ -100,7 +116,7 @@ const App = () => {
             }
         } else if (step === 'input') {
             if (key.return) {
-                moveToModelSelection();
+                moveToModelSelection(activeProviderId);
             } else if (key.backspace || key.delete) {
                 setApiKey(apiKey.slice(0, -1));
             } else if (input && !key.ctrl && !key.meta) {
@@ -128,13 +144,10 @@ const App = () => {
             }
             if (key.return) {
                 const auth = loadAuth();
-                const provider = PROVIDERS[selectedIndex];
-                if (provider.id !== 'gemini-cli' && provider.id !== 'antigravity') {
-                   auth[provider.id] = { apiKey, type: 'key', enabledModels: selectedModels };
+                if (activeProviderId === 'google' || !auth[activeProviderId]?.apiKey) {
+                    auth[activeProviderId] = { apiKey, type: 'key', enabledModels: selectedModels };
                 } else {
-                   if (auth[provider.id]) {
-                       auth[provider.id].enabledModels = selectedModels;
-                   }
+                    auth[activeProviderId].enabledModels = selectedModels;
                 }
                 saveAuth(auth);
                 setStep('done');
@@ -142,7 +155,7 @@ const App = () => {
         } else if (step === 'done') {
             process.exit(0);
         }
-        if (key.escape) process.exit(0);
+        if (key.escape && step !== 'google_submenu') process.exit(0);
     });
 
     useEffect(() => {
@@ -192,12 +205,29 @@ const App = () => {
                             </Box>
                         ))}
                     </Box>
-                    {status && <Box marginTop={1}><Text color="#F38BA8">{status}</Text></Box>}
+                </Box>
+            )}
+            {step === 'google_submenu' && (
+                <Box flexDirection="column">
+                    <Text color="#CDD6F4">Google Gemini - Select authentication method:</Text>
+                    <Box flexDirection="column" marginTop={1}>
+                        {GOOGLE_SUBMENU.map((sub, index) => (
+                            <Box key={sub.id}>
+                                <Text color={index === googleIndex ? '#89B4FA' : '#6C7086'}>
+                                    {index === googleIndex ? '●' : '○'}
+                                </Text>
+                                <Text color={index === googleIndex ? '#CDD6F4' : '#6C7086'} bold={index === googleIndex}>
+                                    {' '}{sub.name}
+                                </Text>
+                            </Box>
+                        ))}
+                    </Box>
+                    <Box marginTop={1}><Text color="#6C7086">(Esc to go back)</Text></Box>
                 </Box>
             )}
             {step === 'input' && (
                 <Box flexDirection="column">
-                    <Text color="#CDD6F4">Configuring: <Text color="#89B4FA" bold>{PROVIDERS[selectedIndex].name}</Text></Text>
+                    <Text color="#CDD6F4">Configuring: <Text color="#89B4FA" bold>{activeProviderId}</Text></Text>
                     <Box marginTop={1} paddingX={1} borderStyle="round" borderColor="#89B4FA" minHeight={3}>
                         <Box flexDirection="row">
                             <Text color="#CDD6F4">API Key: </Text>
@@ -219,7 +249,7 @@ const App = () => {
                         <Text color="#F9E2AF">Loading model list...</Text>
                     ) : (
                         <Box flexDirection="column">
-                            <Text color="#CDD6F4">Enable models for <Text color="#89B4FA" bold>{PROVIDERS[selectedIndex].name}</Text>:</Text>
+                            <Text color="#CDD6F4">Enable models for <Text color="#89B4FA" bold>{activeProviderId}</Text>:</Text>
                             <Box flexDirection="column" marginTop={1}>
                                 {availableModels.map((model, index) => (
                                     <Box key={model}>
