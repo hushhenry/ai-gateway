@@ -184,7 +184,16 @@ const App: React.FC<AppProps> = ({ initialProviderId, skipToModels, onOauthReque
             }
             if (key.escape) setStep('select');
         } else if (step === 'input') {
-            if (key.return) {
+            if (key.return && apiKey) {
+                // Save credentials first so fetchProviderModels can use them
+                const auth = loadAuth();
+                auth[activeProviderId] = { 
+                    apiKey, 
+                    type: activeProviderId === 'anthropic-token' ? 'oauth' : 'key' 
+                };
+                saveAuth(auth);
+                // Now fetch models with credentials available
+                await prefetchModels(activeProviderId);
                 moveToModelSelection(activeProviderId);
             } else if (key.backspace || key.delete) {
                 setApiKey(apiKey.slice(0, -1));

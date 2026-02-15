@@ -9,6 +9,16 @@ export const PROVIDER_MODELS: Record<string, string[]> = {
         'o1-mini'
     ],
     anthropic: [
+        'claude-opus-4-6',
+        'claude-sonnet-4-5-20250514',
+        'claude-sonnet-4-20250514',
+        'claude-3-5-sonnet-latest',
+        'claude-3-5-haiku-latest'
+    ],
+    'anthropic-token': [
+        'claude-opus-4-6',
+        'claude-sonnet-4-5-20250514',
+        'claude-sonnet-4-20250514',
         'claude-3-5-sonnet-latest',
         'claude-3-5-haiku-latest'
     ],

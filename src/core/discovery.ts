@@ -1,7 +1,55 @@
-import { saveAuth, loadAuth } from '../core/auth.js';
+import { loadAuth } from '../core/auth.js';
 
-export async function fetchProviderModels(providerId: string): Promise<string[]> {
+/**
+ * Fetch Anthropic models using /v1/models endpoint.
+ * Works with both API key (x-api-key header) and OAuth token (Bearer auth).
+ */
+async function fetchAnthropicModels(apiKey: string, isOAuthToken: boolean): Promise<string[]> {
+    const headers: Record<string, string> = {
+        'anthropic-version': '2023-06-01',
+    };
+
+    if (isOAuthToken) {
+        headers['Authorization'] = `Bearer ${apiKey}`;
+        headers['anthropic-beta'] = 'claude-code-20250219,oauth-2025-04-20';
+        headers['user-agent'] = 'claude-cli/0.2.29 (external, cli)';
+        headers['x-app'] = 'cli';
+    } else {
+        headers['x-api-key'] = apiKey;
+    }
+
     try {
+        const response = await fetch('https://api.anthropic.com/v1/models', { headers });
+        if (!response.ok) {
+            console.error(`Anthropic models API returned ${response.status}`);
+            return [];
+        }
+        const data = await response.json() as any;
+        if (data.data && Array.isArray(data.data)) {
+            return data.data
+                .map((m: any) => m.id)
+                .filter((id: string) => id && typeof id === 'string');
+        }
+    } catch (e) {
+        console.error('Failed to fetch Anthropic models:', e);
+    }
+    return [];
+}
+
+export async function fetchProviderModels(providerId: string, configPath?: string): Promise<string[]> {
+    try {
+        // For anthropic and anthropic-token, try the Anthropic /v1/models API with credentials
+        if (providerId === 'anthropic' || providerId === 'anthropic-token') {
+            const auth = loadAuth(configPath);
+            const creds = auth[providerId];
+            if (creds?.apiKey) {
+                const isOAuth = providerId === 'anthropic-token' || creds.apiKey.includes('sk-ant-oat');
+                const models = await fetchAnthropicModels(creds.apiKey, isOAuth);
+                if (models.length > 0) return models;
+            }
+            // Fallback: try models.dev
+        }
+
         if (providerId === 'openrouter') {
             const response = await fetch("https://openrouter.ai/api/v1/models");
             const data = await response.json() as any;
@@ -10,17 +58,16 @@ export async function fetchProviderModels(providerId: string): Promise<string[]>
                 .map((m: any) => m.id);
         }
 
-        // For other providers, we can try models.dev as a source like OpenClaw does
+        // For other providers, use models.dev as a fallback source
         const response = await fetch("https://models.dev/api.json");
         const data = await response.json() as any;
         
         let providerKey = providerId;
-        // Map our IDs to models.dev keys
         if (providerId === 'google') providerKey = 'google';
-        if (providerId === 'gemini-cli') providerKey = 'google'; // gemini-cli uses google models but from a different endpoint
+        if (providerId === 'gemini-cli') providerKey = 'google';
         if (providerId === 'antigravity') providerKey = 'google';
         if (providerId === 'openai') providerKey = 'openai';
-        if (providerId === 'anthropic') providerKey = 'anthropic';
+        if (providerId === 'anthropic' || providerId === 'anthropic-token') providerKey = 'anthropic';
         if (providerId === 'deepseek') providerKey = 'deepseek';
 
         const modelsData = data[providerKey]?.models;
@@ -29,9 +76,7 @@ export async function fetchProviderModels(providerId: string): Promise<string[]>
                 .filter(([_, m]: [string, any]) => m.tool_call === true)
                 .map(([id, _]) => id);
             
-            // For gemini-cli and antigravity, we add some specific ones if it's the right provider
             if (providerId === 'gemini-cli') {
-                // Gemini CLI specific models
                 models.push('gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-3-pro-preview', 'gemini-3-flash-preview');
             }
             if (providerId === 'antigravity') {
