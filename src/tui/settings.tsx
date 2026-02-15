@@ -33,6 +33,13 @@ async function performOauthFlow(providerId: string): Promise<boolean> {
     // Try to open the URL in the browser
     try { await open(url); } catch (e) {}
 
+    // Restore stdin after Ink's unmount (which calls stdin.unref() + setRawMode(false))
+    if (process.stdin.isTTY) {
+        process.stdin.setRawMode(false);
+    }
+    process.stdin.ref();
+    process.stdin.resume();
+
     // Write URL directly to stdout — no framework wrapping, single clickable line
     process.stdout.write('\nPlease visit the following URL to authorize the application:\n\n');
     process.stdout.write(url + '\n\n');
