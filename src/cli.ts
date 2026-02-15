@@ -40,16 +40,16 @@ program.command('login')
   });
 
 program.command('doctor')
-  .description('Validate all configured providers (connectivity + tool calling)')
+  .description('Validate configured providers (connectivity + tool calling)')
+  .argument('[models...]', 'Specific models to test (provider/model format)')
   .option('-p, --port <number>', 'Gateway port', '8192')
-  .option('--provider <id>', 'Test a specific provider only')
   .option('-e, --endpoint <type>', 'Endpoint to test: chat, messages, or both', 'chat')
   .option('-v, --verbose', 'Show error details on failure')
-  .action(async (opts) => {
+  .action(async (models, opts) => {
     const { runDoctor } = await import('./cli/doctor.js');
     await runDoctor({
       port: parseInt(opts.port),
-      provider: opts.provider,
+      models: models.length ? models : undefined,
       endpoint: opts.endpoint,
       verbose: opts.verbose,
     });

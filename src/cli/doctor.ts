@@ -1,16 +1,16 @@
 /**
  * ai-gateway doctor — validate all configured providers
- * 
- * For each provider+model:
- *   1. Basic connectivity: send a simple prompt, expect text back
- *   2. Tool use: send a prompt with a tool, expect a tool_call back
- * 
- * Tests both /v1/chat/completions and /v1/messages endpoints.
+ *
+ * For each provider+model, tests:
+ *   1. Text (non-streaming + streaming)
+ *   2. Tool use (non-streaming + streaming)
+ *
+ * Supports both /v1/chat/completions and /v1/messages endpoints.
  */
 
 import { loadAuth } from '../core/auth.js';
 
-const TOOL_DEF_OPENAI = [{
+const TOOL_OPENAI = [{
     type: 'function',
     function: {
         name: 'get_weather',
@@ -23,7 +23,7 @@ const TOOL_DEF_OPENAI = [{
     },
 }];
 
-const TOOL_DEF_ANTHROPIC = [{
+const TOOL_ANTHROPIC = [{
     name: 'get_weather',
     description: 'Get the current weather in a given location',
     input_schema: {
@@ -33,238 +33,258 @@ const TOOL_DEF_ANTHROPIC = [{
     },
 }];
 
-interface TestResult {
-    provider: string;
-    model: string;
-    test: string;
-    status: 'pass' | 'fail' | 'skip';
-    detail?: string;
-    durationMs?: number;
+interface Check {
+    name: string;
+    ok: boolean;
+    ms: number;
+    err?: string;
 }
 
-async function testChatCompletions(
-    baseUrl: string,
-    model: string,
-    stream: boolean,
-): Promise<{ textOk: boolean; toolOk: boolean; textErr?: string; toolErr?: string; textMs?: number; toolMs?: number }> {
-    const result = { textOk: false, toolOk: false, textErr: '', toolErr: '', textMs: 0, toolMs: 0 };
+function parseSSE(raw: string): string[] {
+    return raw.split(/\n\n/).flatMap(block =>
+        block.split('\n').filter(l => l.startsWith('data: ')).map(l => l.slice(6))
+    ).filter(Boolean);
+}
 
-    // Text test
+// ─── /v1/chat/completions checks ──────────────────────────────────────────────
+
+async function chatText(base: string, model: string): Promise<Check> {
+    const t0 = Date.now();
     try {
-        const t0 = Date.now();
-        const res = await fetch(`${baseUrl}/v1/chat/completions`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                model, stream,
-                messages: [{ role: 'user', content: 'Say "hello" and nothing else.' }],
-                max_tokens: 50,
-            }),
+        const r = await fetch(`${base}/v1/chat/completions`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ model, stream: false, max_tokens: 50, messages: [{ role: 'user', content: 'Say "hello" and nothing else.' }] }),
             signal: AbortSignal.timeout(30000),
         });
-        if (stream) {
-            const text = await res.text();
-            result.textOk = res.ok && text.includes('data:');
-            if (!result.textOk) result.textErr = `status=${res.status}, body=${text.slice(0, 200)}`;
-        } else {
-            const json: any = await res.json();
-            result.textOk = res.ok && !!json.choices?.[0]?.message?.content;
-            if (!result.textOk) result.textErr = `status=${res.status}, body=${JSON.stringify(json).slice(0, 200)}`;
+        const j: any = await r.json();
+        const ok = r.ok && !!j.choices?.[0]?.message?.content;
+        return { name: '/chat/completions text', ok, ms: Date.now() - t0, err: ok ? undefined : `${r.status}: ${JSON.stringify(j).slice(0, 200)}` };
+    } catch (e: any) { return { name: '/chat/completions text', ok: false, ms: Date.now() - t0, err: e.message }; }
+}
+
+async function chatTextStream(base: string, model: string): Promise<Check> {
+    const t0 = Date.now();
+    try {
+        const r = await fetch(`${base}/v1/chat/completions`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ model, stream: true, max_tokens: 50, messages: [{ role: 'user', content: 'Say "hello" and nothing else.' }] }),
+            signal: AbortSignal.timeout(30000),
+        });
+        const raw = await r.text();
+        const lines = parseSSE(raw);
+        let hasContent = false;
+        for (const l of lines) {
+            if (l === '[DONE]') continue;
+            try { const c = JSON.parse(l); if (c.choices?.[0]?.delta?.content) hasContent = true; } catch {}
         }
-        result.textMs = Date.now() - t0;
-    } catch (e: any) {
-        result.textErr = e.message;
-    }
-
-    // Tool test
-    try {
-        const t0 = Date.now();
-        const res = await fetch(`${baseUrl}/v1/chat/completions`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                model, stream: false,
-                messages: [{ role: 'user', content: 'What is the weather in Tokyo?' }],
-                tools: TOOL_DEF_OPENAI,
-                max_tokens: 200,
-            }),
-            signal: AbortSignal.timeout(30000),
-        });
-        const json: any = await res.json();
-        const tc = json.choices?.[0]?.message?.tool_calls?.[0];
-        result.toolOk = res.ok && tc?.function?.name === 'get_weather' && typeof tc?.function?.arguments === 'string';
-        if (!result.toolOk) result.toolErr = `status=${res.status}, body=${JSON.stringify(json).slice(0, 200)}`;
-        result.toolMs = Date.now() - t0;
-    } catch (e: any) {
-        result.toolErr = e.message;
-    }
-
-    return result;
+        const ok = r.ok && hasContent;
+        return { name: '/chat/completions text stream', ok, ms: Date.now() - t0, err: ok ? undefined : `${r.status}: no content delta` };
+    } catch (e: any) { return { name: '/chat/completions text stream', ok: false, ms: Date.now() - t0, err: e.message }; }
 }
 
-async function testMessages(
-    baseUrl: string,
-    model: string,
-    stream: boolean,
-): Promise<{ textOk: boolean; toolOk: boolean; textErr?: string; toolErr?: string; textMs?: number; toolMs?: number }> {
-    const result = { textOk: false, toolOk: false, textErr: '', toolErr: '', textMs: 0, toolMs: 0 };
-
-    // Text test
+async function chatTool(base: string, model: string): Promise<Check> {
+    const t0 = Date.now();
     try {
-        const t0 = Date.now();
-        const res = await fetch(`${baseUrl}/v1/messages`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                model, stream,
-                max_tokens: 50,
-                messages: [{ role: 'user', content: 'Say "hello" and nothing else.' }],
-            }),
+        const r = await fetch(`${base}/v1/chat/completions`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ model, stream: false, max_tokens: 200, messages: [{ role: 'user', content: 'What is the weather in Tokyo?' }], tools: TOOL_OPENAI }),
             signal: AbortSignal.timeout(30000),
         });
-        if (stream) {
-            const text = await res.text();
-            result.textOk = res.ok && text.includes('event:');
-            if (!result.textOk) result.textErr = `status=${res.status}, body=${text.slice(0, 200)}`;
-        } else {
-            const json: any = await res.json();
-            const hasText = json.content?.some((b: any) => b.type === 'text');
-            result.textOk = res.ok && hasText;
-            if (!result.textOk) result.textErr = `status=${res.status}, body=${JSON.stringify(json).slice(0, 200)}`;
+        const j: any = await r.json();
+        const tc = j.choices?.[0]?.message?.tool_calls?.[0];
+        const ok = r.ok && tc?.function?.name === 'get_weather' && typeof tc?.function?.arguments === 'string';
+        return { name: '/chat/completions tool', ok, ms: Date.now() - t0, err: ok ? undefined : `${r.status}: ${JSON.stringify(j).slice(0, 200)}` };
+    } catch (e: any) { return { name: '/chat/completions tool', ok: false, ms: Date.now() - t0, err: e.message }; }
+}
+
+async function chatToolStream(base: string, model: string): Promise<Check> {
+    const t0 = Date.now();
+    try {
+        const r = await fetch(`${base}/v1/chat/completions`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ model, stream: true, max_tokens: 200, messages: [{ role: 'user', content: 'What is the weather in Tokyo?' }], tools: TOOL_OPENAI }),
+            signal: AbortSignal.timeout(30000),
+        });
+        const raw = await r.text();
+        const lines = parseSSE(raw);
+        let name = '', args = '';
+        for (const l of lines) {
+            if (l === '[DONE]') continue;
+            try {
+                const c = JSON.parse(l);
+                const tc = c.choices?.[0]?.delta?.tool_calls?.[0];
+                if (tc?.function?.name) name = tc.function.name;
+                if (tc?.function?.arguments) args += tc.function.arguments;
+            } catch {}
         }
-        result.textMs = Date.now() - t0;
-    } catch (e: any) {
-        result.textErr = e.message;
-    }
+        const ok = r.ok && name === 'get_weather' && args.length > 0;
+        let argsValid = false;
+        try { JSON.parse(args); argsValid = true; } catch {}
+        return { name: '/chat/completions tool stream', ok: ok && argsValid, ms: Date.now() - t0, err: (ok && argsValid) ? undefined : `name=${name}, args=${args.slice(0, 100)}` };
+    } catch (e: any) { return { name: '/chat/completions tool stream', ok: false, ms: Date.now() - t0, err: e.message }; }
+}
 
-    // Tool test
+// ─── /v1/messages checks ──────────────────────────────────────────────────────
+
+async function msgText(base: string, model: string): Promise<Check> {
+    const t0 = Date.now();
     try {
-        const t0 = Date.now();
-        const res = await fetch(`${baseUrl}/v1/messages`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                model, stream: false,
-                max_tokens: 200,
-                messages: [{ role: 'user', content: 'What is the weather in Tokyo?' }],
-                tools: TOOL_DEF_ANTHROPIC,
-            }),
+        const r = await fetch(`${base}/v1/messages`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ model, stream: false, max_tokens: 50, messages: [{ role: 'user', content: 'Say "hello" and nothing else.' }] }),
             signal: AbortSignal.timeout(30000),
         });
-        const json: any = await res.json();
-        const toolBlock = json.content?.find((b: any) => b.type === 'tool_use');
-        result.toolOk = res.ok && toolBlock?.name === 'get_weather' && typeof toolBlock?.input === 'object';
-        if (!result.toolOk) result.toolErr = `status=${res.status}, body=${JSON.stringify(json).slice(0, 200)}`;
-        result.toolMs = Date.now() - t0;
-    } catch (e: any) {
-        result.toolErr = e.message;
-    }
-
-    return result;
+        const j: any = await r.json();
+        const ok = r.ok && j.content?.some((b: any) => b.type === 'text');
+        return { name: '/messages text', ok, ms: Date.now() - t0, err: ok ? undefined : `${r.status}: ${JSON.stringify(j).slice(0, 200)}` };
+    } catch (e: any) { return { name: '/messages text', ok: false, ms: Date.now() - t0, err: e.message }; }
 }
 
-function icon(status: 'pass' | 'fail' | 'skip'): string {
-    switch (status) {
-        case 'pass': return '✅';
-        case 'fail': return '❌';
-        case 'skip': return '⏭️';
-    }
+async function msgTextStream(base: string, model: string): Promise<Check> {
+    const t0 = Date.now();
+    try {
+        const r = await fetch(`${base}/v1/messages`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ model, stream: true, max_tokens: 50, messages: [{ role: 'user', content: 'Say "hello" and nothing else.' }] }),
+            signal: AbortSignal.timeout(30000),
+        });
+        const raw = await r.text();
+        const lines = parseSSE(raw);
+        let hasTextDelta = false;
+        for (const l of lines) {
+            try { const e = JSON.parse(l); if (e.type === 'content_block_delta' && e.delta?.type === 'text_delta') hasTextDelta = true; } catch {}
+        }
+        const ok = r.ok && hasTextDelta;
+        return { name: '/messages text stream', ok, ms: Date.now() - t0, err: ok ? undefined : `${r.status}: no text_delta` };
+    } catch (e: any) { return { name: '/messages text stream', ok: false, ms: Date.now() - t0, err: e.message }; }
 }
+
+async function msgTool(base: string, model: string): Promise<Check> {
+    const t0 = Date.now();
+    try {
+        const r = await fetch(`${base}/v1/messages`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ model, stream: false, max_tokens: 200, messages: [{ role: 'user', content: 'What is the weather in Tokyo?' }], tools: TOOL_ANTHROPIC }),
+            signal: AbortSignal.timeout(30000),
+        });
+        const j: any = await r.json();
+        const tb = j.content?.find((b: any) => b.type === 'tool_use');
+        const ok = r.ok && tb?.name === 'get_weather' && typeof tb?.input === 'object' && j.stop_reason === 'tool_use';
+        return { name: '/messages tool', ok, ms: Date.now() - t0, err: ok ? undefined : `${r.status}: ${JSON.stringify(j).slice(0, 200)}` };
+    } catch (e: any) { return { name: '/messages tool', ok: false, ms: Date.now() - t0, err: e.message }; }
+}
+
+async function msgToolStream(base: string, model: string): Promise<Check> {
+    const t0 = Date.now();
+    try {
+        const r = await fetch(`${base}/v1/messages`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ model, stream: true, max_tokens: 200, messages: [{ role: 'user', content: 'What is the weather in Tokyo?' }], tools: TOOL_ANTHROPIC }),
+            signal: AbortSignal.timeout(30000),
+        });
+        const raw = await r.text();
+        const lines = parseSSE(raw);
+        let hasToolStart = false, hasInputDelta = false, stopReason = '';
+        for (const l of lines) {
+            try {
+                const e = JSON.parse(l);
+                if (e.type === 'content_block_start' && e.content_block?.type === 'tool_use') hasToolStart = true;
+                if (e.type === 'content_block_delta' && e.delta?.type === 'input_json_delta') hasInputDelta = true;
+                if (e.type === 'message_delta') stopReason = e.delta?.stop_reason || '';
+            } catch {}
+        }
+        const ok = r.ok && hasToolStart && hasInputDelta && stopReason === 'tool_use';
+        return { name: '/messages tool stream', ok, ms: Date.now() - t0, err: ok ? undefined : `toolStart=${hasToolStart} inputDelta=${hasInputDelta} stop=${stopReason}` };
+    } catch (e: any) { return { name: '/messages tool stream', ok: false, ms: Date.now() - t0, err: e.message }; }
+}
+
+// ─── Runner ───────────────────────────────────────────────────────────────────
+
+function icon(ok: boolean): string { return ok ? '✅' : '❌'; }
 
 export async function runDoctor(options: {
     port?: number;
-    provider?: string;
+    models?: string[];  // e.g. ['anthropic-token/claude-haiku-4-5-20251001', 'gemini-cli/gemini-3-flash-preview']
     endpoint?: 'chat' | 'messages' | 'both';
     verbose?: boolean;
 }) {
     const port = options.port || 8192;
-    const baseUrl = `http://localhost:${port}`;
+    const base = `http://localhost:${port}`;
     const endpoint = options.endpoint || 'chat';
     const verbose = options.verbose || false;
 
-    // Check if gateway is running
+    // Gateway reachable?
     try {
-        const res = await fetch(`${baseUrl}/v1/models`, { signal: AbortSignal.timeout(3000) });
-        if (!res.ok) throw new Error(`status ${res.status}`);
-    } catch (e: any) {
-        console.error(`\n❌ Gateway not reachable at ${baseUrl}`);
+        const r = await fetch(`${base}/v1/models`, { signal: AbortSignal.timeout(3000) });
+        if (!r.ok) throw new Error(`status ${r.status}`);
+    } catch {
+        console.error(`\n❌ Gateway not reachable at ${base}`);
         console.error(`   Start it with: ai-gateway serve --port ${port}\n`);
         process.exit(1);
     }
 
-    // Load configured providers
-    const auth = loadAuth();
-    const providers = Object.entries(auth).filter(([_, creds]) => {
-        return creds.enabledModels && creds.enabledModels.length > 0;
-    });
+    // Build test targets: array of { provider, model (full "provider/modelId") }
+    let targets: Array<{ provider: string; model: string }>;
 
-    if (providers.length === 0) {
-        console.error('\n⚠️  No providers configured with enabled models.');
-        console.error('   Run: ai-gateway login\n');
-        process.exit(1);
+    if (options.models?.length) {
+        // User specified exact models
+        targets = options.models.map(m => {
+            const slash = m.indexOf('/');
+            if (slash === -1) {
+                console.error(`\n⚠️  Invalid model format "${m}". Use: provider/model\n`);
+                process.exit(1);
+            }
+            return { provider: m.substring(0, slash), model: m };
+        });
+    } else {
+        // Default: first enabled model per configured provider
+        const auth = loadAuth();
+        const all = Object.entries(auth).filter(([_, c]) => c.enabledModels?.length);
+        if (!all.length) { console.error('\n⚠️  No providers configured. Run: ai-gateway login\n'); process.exit(1); }
+        targets = all.map(([pid, creds]) => ({
+            provider: pid,
+            model: `${pid}/${creds.enabledModels![0]}`,
+        }));
     }
 
-    // Filter by provider if specified
-    const filtered = options.provider
-        ? providers.filter(([id]) => id === options.provider)
-        : providers;
+    const providerCount = new Set(targets.map(t => t.provider)).size;
+    console.log(`\n🩺 AI Gateway Doctor — ${targets.length} model(s) across ${providerCount} provider(s)\n`);
+    console.log(`   Gateway: ${base}`);
+    console.log(`   Endpoint: ${endpoint === 'both' ? 'chat + messages' : endpoint}\n`);
 
-    if (filtered.length === 0) {
-        console.error(`\n⚠️  Provider "${options.provider}" not found in configuration.`);
-        console.error(`   Available: ${providers.map(([id]) => id).join(', ')}\n`);
-        process.exit(1);
-    }
+    let pass = 0, fail = 0;
 
-    console.log(`\n🩺 AI Gateway Doctor — testing ${filtered.length} provider(s)\n`);
-    console.log(`   Gateway: ${baseUrl}`);
-    console.log(`   Endpoint(s): ${endpoint === 'both' ? '/v1/chat/completions + /v1/messages' : endpoint === 'messages' ? '/v1/messages' : '/v1/chat/completions'}\n`);
+    for (const { provider: pid, model } of targets) {
+        console.log(`── ${model} ──`);
 
-    const results: TestResult[] = [];
-    let totalPass = 0, totalFail = 0;
-
-    for (const [providerId, creds] of filtered) {
-        // Pick first enabled model for testing
-        const model = `${providerId}/${creds.enabledModels![0]}`;
-        console.log(`── ${providerId} (${model}) ──`);
+        const checks: Check[] = [];
 
         if (endpoint === 'chat' || endpoint === 'both') {
-            // Chat Completions - text
-            const chat = await testChatCompletions(baseUrl, model, false);
-            const textStatus = chat.textOk ? 'pass' : 'fail';
-            const toolStatus = chat.toolOk ? 'pass' : 'fail';
-            console.log(`  ${icon(textStatus)} /chat/completions text  (${chat.textMs}ms)`);
-            if (!chat.textOk && verbose) console.log(`     ${chat.textErr}`);
-            console.log(`  ${icon(toolStatus)} /chat/completions tools (${chat.toolMs}ms)`);
-            if (!chat.toolOk && verbose) console.log(`     ${chat.toolErr}`);
-
-            results.push({ provider: providerId, model, test: 'chat-text', status: textStatus, detail: chat.textErr, durationMs: chat.textMs });
-            results.push({ provider: providerId, model, test: 'chat-tools', status: toolStatus, detail: chat.toolErr, durationMs: chat.toolMs });
-            if (chat.textOk) totalPass++; else totalFail++;
-            if (chat.toolOk) totalPass++; else totalFail++;
+            checks.push(await chatText(base, model));
+            checks.push(await chatTextStream(base, model));
+            checks.push(await chatTool(base, model));
+            checks.push(await chatToolStream(base, model));
         }
 
         if (endpoint === 'messages' || endpoint === 'both') {
-            const msg = await testMessages(baseUrl, model, false);
-            const textStatus = msg.textOk ? 'pass' : 'fail';
-            const toolStatus = msg.toolOk ? 'pass' : 'fail';
-            console.log(`  ${icon(textStatus)} /messages text  (${msg.textMs}ms)`);
-            if (!msg.textOk && verbose) console.log(`     ${msg.textErr}`);
-            console.log(`  ${icon(toolStatus)} /messages tools (${msg.toolMs}ms)`);
-            if (!msg.toolOk && verbose) console.log(`     ${msg.toolErr}`);
+            checks.push(await msgText(base, model));
+            checks.push(await msgTextStream(base, model));
+            checks.push(await msgTool(base, model));
+            checks.push(await msgToolStream(base, model));
+        }
 
-            results.push({ provider: providerId, model, test: 'msg-text', status: textStatus, detail: msg.textErr, durationMs: msg.textMs });
-            results.push({ provider: providerId, model, test: 'msg-tools', status: toolStatus, detail: msg.toolErr, durationMs: msg.toolMs });
-            if (msg.textOk) totalPass++; else totalFail++;
-            if (msg.toolOk) totalPass++; else totalFail++;
+        for (const c of checks) {
+            console.log(`  ${icon(c.ok)} ${c.name}  (${c.ms}ms)`);
+            if (!c.ok && verbose && c.err) console.log(`     ${c.err}`);
+            if (c.ok) pass++; else fail++;
         }
 
         console.log('');
     }
 
-    // Summary
     console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
-    console.log(`  ✅ ${totalPass} passed   ❌ ${totalFail} failed`);
+    console.log(`  ✅ ${pass} passed   ❌ ${fail} failed`);
     console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`);
 
-    if (totalFail > 0) process.exit(1);
+    if (fail > 0) process.exit(1);
 }
