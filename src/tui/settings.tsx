@@ -315,6 +315,14 @@ const App: React.FC<AppProps> = ({ initialProviderId, skipToModels, onOauthReque
                 } else if (OAUTH_PROVIDERS.includes(provider.id)) {
                     // Signal to parent to handle OAuth outside Ink
                     onOauthRequest?.(provider.id);
+                } else if (provider.id === 'cursor') {
+                    // Cursor: skip API key input, auto-detect cursor-agent and go to models
+                    setActiveProviderId('cursor');
+                    const auth = loadAuth();
+                    auth['cursor'] = { apiKey: 'cursor-auth', type: 'key' };
+                    saveAuth(auth);
+                    await prefetchModels('cursor');
+                    moveToModelSelection('cursor');
                 } else {
                     setActiveProviderId(provider.id);
                     prefetchModels(provider.id);
@@ -352,7 +360,7 @@ const App: React.FC<AppProps> = ({ initialProviderId, skipToModels, onOauthReque
             if (key.escape) setStep('select');
         } else if (step === 'input') {
             const MULTI_FIELD_PROVIDERS = ['azure', 'vertex', 'bedrock'];
-            const ALLOW_EMPTY = ['ollama', 'litellm', 'bedrock', 'cursor'];
+            const ALLOW_EMPTY = ['ollama', 'litellm', 'bedrock'];
             if (key.return && (apiKey || ALLOW_EMPTY.includes(activeProviderId))) {
                 if (MULTI_FIELD_PROVIDERS.includes(activeProviderId)) {
                     // Go to extra field input
@@ -369,11 +377,6 @@ const App: React.FC<AppProps> = ({ initialProviderId, skipToModels, onOauthReque
                         auth[activeProviderId] = {
                             apiKey: 'unused',
                             projectId: apiKey || 'http://localhost:4000/v1',
-                            type: 'key',
-                        };
-                    } else if (activeProviderId === 'cursor') {
-                        auth[activeProviderId] = {
-                            apiKey: apiKey || 'cursor-auth',
                             type: 'key',
                         };
                     } else {
@@ -580,7 +583,6 @@ const App: React.FC<AppProps> = ({ initialProviderId, skipToModels, onOauthReque
                                 activeProviderId === 'litellm' ? 'Proxy URL' :
                                 activeProviderId === 'vertex' ? 'Project ID' :
                                 activeProviderId === 'bedrock' ? 'AWS Access Key ID' :
-                                activeProviderId === 'cursor' ? 'cursor-agent path' :
                                 'API Key'
                             }: </Text>
                             {!apiKey && <Text color="#6C7086">
@@ -589,7 +591,6 @@ const App: React.FC<AppProps> = ({ initialProviderId, skipToModels, onOauthReque
                                  activeProviderId === 'anthropic-token' ? 'Type or paste token here...' :
                                  activeProviderId === 'vertex' ? 'e.g. my-gcp-project' :
                                  activeProviderId === 'bedrock' ? 'AWS Access Key ID (or leave empty for default credentials)' :
-                                 activeProviderId === 'cursor' ? 'cursor-agent (default, press Enter to auto-detect)' :
                                  'Type or paste key here...'}
                             </Text>}
                             <Text color="#A6E3A1">
