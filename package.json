@@ -1,6 +1,6 @@
 {
   "name": "@hushhenry/ai-gateway",
-  "version": "1.0.7",
+  "version": "1.0.8",
   "type": "module",
   "description": "A TypeScript AI proxy supporting CLI and Library modes, built with Vercel AI SDK and pi-mono TUI/OAuth logic.",
   "main": "dist/index.js",
