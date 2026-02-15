@@ -1,5 +1,6 @@
 import { loadAuth, getCredentials, type Credentials } from './auth.js';
 import { GeminiCliProvider } from './gemini-cli-provider.js';
+import { CursorProvider } from './cursor-provider.js';
 
 const GEMINI_CLI_HEADERS = {
     "User-Agent": "google-cloud-sdk vscode_cloudshelleditor/0.1",
@@ -237,6 +238,14 @@ export async function getProvider(modelId: string, configPath?: string) {
             const { createOpenAI: create } = await import('@ai-sdk/openai');
             const baseURL = creds.projectId || 'https://dashscope.aliyuncs.com/compatible-mode/v1';
             return create({ apiKey: creds.apiKey, baseURL })(modelName);
+        }
+        case 'cursor': {
+            // Cursor ACP provider wraps cursor-agent CLI
+            // creds.apiKey is either 'cursor-auth' (auto-detect) or path to cursor-agent binary
+            const agentPath = (creds.apiKey && creds.apiKey !== 'cursor-auth')
+                ? creds.apiKey
+                : (process.env.CURSOR_AGENT_EXECUTABLE || 'cursor-agent');
+            return new CursorProvider(modelName, agentPath) as any;
         }
         default:
             throw new Error(`Unsupported provider: ${providerBrand}`);
