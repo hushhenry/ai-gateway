@@ -57,7 +57,109 @@ export class GeminiCliProvider implements LanguageModelV1 {
     }
 
     async doGenerate(options: any): Promise<any> {
-        throw new Error('doGenerate not implemented for GeminiCliProvider. Use streaming.');
+        const projectId = await this.discoverProject();
+        const baseUrl = this.isAntigravity 
+            ? 'https://daily-cloudcode-pa.sandbox.googleapis.com' 
+            : 'https://cloudcode-pa.googleapis.com';
+        
+        const url = `${baseUrl}/v1internal:generateContent`;
+
+        const requestBody = {
+            project: projectId,
+            model: this.modelId,
+            request: {
+                contents: options.prompt.map((m: any) => ({
+                    role: m.role === 'assistant' ? 'model' : m.role,
+                    parts: m.content.map((c: any) => {
+                        if (c.type === 'text') return { text: c.text };
+                        if (c.type === 'tool-call') return {
+                            functionCall: {
+                                name: c.toolName,
+                                args: c.args,
+                                id: c.toolCallId
+                            }
+                        };
+                        if (c.type === 'tool-result') return {
+                            functionResponse: {
+                                name: c.toolName,
+                                response: { output: c.result },
+                                id: c.toolCallId
+                            }
+                        };
+                        return {};
+                    })
+                })),
+                tools: options.tools?.length ? [{
+                    functionDeclarations: options.tools.map((t: any) => ({
+                        name: t.name,
+                        description: t.description,
+                        parametersJsonSchema: t.parameters
+                    }))
+                }] : undefined,
+                toolConfig: options.toolChoice ? {
+                    functionCallingConfig: {
+                        mode: options.toolChoice.type === 'auto' ? 'AUTO' : 
+                              options.toolChoice.type === 'none' ? 'NONE' : 'ANY'
+                    }
+                } : undefined,
+                generationConfig: {
+                    temperature: options.temperature,
+                    maxOutputTokens: options.maxTokens,
+                    thinkingConfig: {
+                        includeThoughts: true,
+                        thinkingLevel: "LOW"
+                    }
+                }
+            },
+            userAgent: "pi-coding-agent",
+            requestId: `ai-gateway-${Date.now()}`
+        };
+
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: {
+                ...GEMINI_CLI_HEADERS,
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${this.accessToken}`
+            },
+            body: JSON.stringify(requestBody)
+        });
+
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Gemini CLI API error (${response.status}): ${errorText}`);
+        }
+
+        const data: any = await response.json();
+        const candidate = data.response?.candidates?.[0];
+        const parts = candidate?.content?.parts || [];
+        
+        let text = '';
+        const toolCalls: any[] = [];
+        
+        for (const part of parts) {
+            if (part.text) text += part.text;
+            if (part.functionCall) {
+                toolCalls.push({
+                    toolCallType: 'function',
+                    toolCallId: part.functionCall.id || `call_${Date.now()}`,
+                    toolName: part.functionCall.name,
+                    args: JSON.stringify(part.functionCall.args)
+                });
+            }
+        }
+
+        return {
+            text,
+            toolCalls,
+            finishReason: candidate?.finishReason === 'STOP' ? 'stop' : 'other',
+            usage: {
+                promptTokens: data.response?.usageMetadata?.promptTokenCount || 0,
+                completionTokens: (data.response?.usageMetadata?.candidatesTokenCount || 0) + (data.response?.usageMetadata?.thoughtsTokenCount || 0)
+            },
+            rawCall: { url, body: requestBody },
+            rawResponse: { headers: response.headers }
+        };
     }
 
     async doStream(options: any): Promise<{ stream: ReadableStream<LanguageModelV1StreamPart>; rawCall: any; rawResponse: any }> {
