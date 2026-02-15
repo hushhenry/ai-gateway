@@ -41,7 +41,7 @@ interface Check {
 }
 
 // Cursor/agent-based providers need longer timeouts since they spawn CLI processes
-const SLOW_PROVIDERS = new Set(['cursor']);
+const SLOW_PROVIDERS = new Set<string>();
 function getTimeout(model: string): number {
     const provider = model.split('/')[0];
     return SLOW_PROVIDERS.has(provider) ? 120000 : 30000;

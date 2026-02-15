@@ -130,7 +130,6 @@ export const PROVIDER_MODELS: Record<string, string[]> = {
         'qwen3-coder-plus',
         'qwen3-coder-flash',
     ],
-    cursor: [],  // dynamically discovered via cursor-agent models
 };
 
 export async function fetchModelsForProvider(providerId: string, apiKey?: string): Promise<string[]> {

@@ -1,5 +1,4 @@
 import { loadAuth } from '../core/auth.js';
-import { CursorProvider } from './cursor-provider.js';
 
 /**
  * Fetch Anthropic models using /v1/models endpoint.
@@ -102,12 +101,6 @@ export async function fetchProviderModels(providerId: string, configPath?: strin
             const baseURL = auth[providerId]?.projectId || 'http://localhost:4000/v1';
             const apiKey = auth[providerId]?.apiKey || '';
             return await fetchOpenAICompatModels(baseURL, apiKey);
-        }
-
-        // Cursor: discover models via CursorProvider (wraps cursor-agent CLI)
-        if (providerId === 'cursor') {
-            const models = await CursorProvider.discoverModels();
-            return models.map(m => m.id);
         }
 
         // OpenAI-compatible providers: try their /v1/models endpoint

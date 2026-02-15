@@ -38,7 +38,6 @@ const PROVIDERS = [
     { id: 'azure', name: 'Azure OpenAI' },
     { id: 'vertex', name: 'Google Vertex AI' },
     { id: 'bedrock', name: 'Amazon Bedrock' },
-    { id: 'cursor', name: 'Cursor ACP' },
 ];
 
 const ANTHROPIC_SUBMENU = [
@@ -315,14 +314,6 @@ const App: React.FC<AppProps> = ({ initialProviderId, skipToModels, onOauthReque
                 } else if (OAUTH_PROVIDERS.includes(provider.id)) {
                     // Signal to parent to handle OAuth outside Ink
                     onOauthRequest?.(provider.id);
-                } else if (provider.id === 'cursor') {
-                    // Cursor: skip API key input, auto-detect cursor-agent and go to models
-                    setActiveProviderId('cursor');
-                    const auth = loadAuth();
-                    auth['cursor'] = { apiKey: 'cursor-auth', type: 'key' };
-                    saveAuth(auth);
-                    await prefetchModels('cursor');
-                    moveToModelSelection('cursor');
                 } else {
                     setActiveProviderId(provider.id);
                     prefetchModels(provider.id);
