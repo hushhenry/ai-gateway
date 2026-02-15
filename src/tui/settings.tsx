@@ -13,7 +13,15 @@ const PROVIDERS = [
     { id: 'google', name: 'Google (Gemini)', hasSubmenu: true },
     { id: 'github-copilot', name: 'GitHub Copilot (OAuth)' },
     { id: 'deepseek', name: 'DeepSeek' },
-    { id: 'openrouter', name: 'OpenRouter' }
+    { id: 'openrouter', name: 'OpenRouter' },
+    { id: 'xai', name: 'xAI (Grok)' },
+    { id: 'moonshot', name: 'Moonshot (Kimi)' },
+    { id: 'zhipu', name: 'Zhipu AI (GLM)' },
+    { id: 'groq', name: 'Groq' },
+    { id: 'together', name: 'Together AI' },
+    { id: 'minimax', name: 'MiniMax' },
+    { id: 'ollama', name: 'Ollama (Local)' },
+    { id: 'litellm', name: 'LiteLLM (Proxy)' },
 ];
 
 const ANTHROPIC_SUBMENU = [
@@ -184,13 +192,26 @@ const App: React.FC<AppProps> = ({ initialProviderId, skipToModels, onOauthReque
             }
             if (key.escape) setStep('select');
         } else if (step === 'input') {
-            if (key.return && apiKey) {
+            if (key.return && (apiKey || activeProviderId === 'ollama' || activeProviderId === 'litellm')) {
                 // Save credentials first so fetchProviderModels can use them
                 const auth = loadAuth();
-                auth[activeProviderId] = { 
-                    apiKey, 
-                    type: activeProviderId === 'anthropic-token' ? 'oauth' : 'key' 
-                };
+                if (activeProviderId === 'ollama') {
+                    auth[activeProviderId] = {
+                        apiKey: apiKey || 'http://localhost:11434/v1',
+                        type: 'key',
+                    };
+                } else if (activeProviderId === 'litellm') {
+                    auth[activeProviderId] = {
+                        apiKey: 'unused',
+                        projectId: apiKey || 'http://localhost:4000/v1',
+                        type: 'key',
+                    };
+                } else {
+                    auth[activeProviderId] = { 
+                        apiKey, 
+                        type: activeProviderId === 'anthropic-token' ? 'oauth' : 'key' 
+                    };
+                }
                 saveAuth(auth);
                 // Now fetch models with credentials available
                 await prefetchModels(activeProviderId);
@@ -341,8 +362,18 @@ const App: React.FC<AppProps> = ({ initialProviderId, skipToModels, onOauthReque
                     <Text color="#CDD6F4">Configuring: <Text color="#89B4FA" bold>{activeProviderId}</Text></Text>
                     <Box marginTop={1} paddingX={1} borderStyle="round" borderColor="#89B4FA" minHeight={3}>
                         <Box flexDirection="row">
-                            <Text color="#CDD6F4">{activeProviderId === 'anthropic-token' ? 'Setup Token' : 'API Key'}: </Text>
-                            {!apiKey && <Text color="#6C7086">Type or paste {activeProviderId === 'anthropic-token' ? 'token' : 'key'} here...</Text>}
+                            <Text color="#CDD6F4">{
+                                activeProviderId === 'anthropic-token' ? 'Setup Token' :
+                                activeProviderId === 'ollama' ? 'Base URL' :
+                                activeProviderId === 'litellm' ? 'Proxy URL' :
+                                'API Key'
+                            }: </Text>
+                            {!apiKey && <Text color="#6C7086">
+                                {activeProviderId === 'ollama' ? 'http://localhost:11434 (default, press Enter to skip)' :
+                                 activeProviderId === 'litellm' ? 'http://localhost:4000 (default, press Enter to skip)' :
+                                 activeProviderId === 'anthropic-token' ? 'Type or paste token here...' :
+                                 'Type or paste key here...'}
+                            </Text>}
                             <Text color="#A6E3A1">
                                 {'*'.repeat(apiKey.length)}
                             </Text>

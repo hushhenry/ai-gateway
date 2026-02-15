@@ -79,6 +79,62 @@ export async function getProvider(modelId: string, configPath?: string) {
                 baseURL: 'https://openrouter.ai/api/v1' 
             })(modelName);
         }
+        case 'xai': {
+            const { createOpenAI: createXAI } = await import('@ai-sdk/openai');
+            return createXAI({
+                apiKey: creds.apiKey,
+                baseURL: 'https://api.x.ai/v1'
+            })(modelName);
+        }
+        case 'moonshot': {
+            const { createOpenAI: createMoonshot } = await import('@ai-sdk/openai');
+            return createMoonshot({
+                apiKey: creds.apiKey,
+                baseURL: 'https://api.moonshot.cn/v1'
+            })(modelName);
+        }
+        case 'zhipu': {
+            const { createOpenAI: createZhipu } = await import('@ai-sdk/openai');
+            return createZhipu({
+                apiKey: creds.apiKey,
+                baseURL: 'https://open.bigmodel.cn/api/paas/v4'
+            })(modelName);
+        }
+        case 'groq': {
+            const { createOpenAI: createGroq } = await import('@ai-sdk/openai');
+            return createGroq({
+                apiKey: creds.apiKey,
+                baseURL: 'https://api.groq.com/openai/v1'
+            })(modelName);
+        }
+        case 'together': {
+            const { createOpenAI: createTogether } = await import('@ai-sdk/openai');
+            return createTogether({
+                apiKey: creds.apiKey,
+                baseURL: 'https://api.together.xyz/v1'
+            })(modelName);
+        }
+        case 'minimax': {
+            const { createOpenAI: createMinimax } = await import('@ai-sdk/openai');
+            return createMinimax({
+                apiKey: creds.apiKey,
+                baseURL: 'https://api.minimax.chat/v1'
+            })(modelName);
+        }
+        case 'ollama': {
+            const { createOpenAI: createOllama } = await import('@ai-sdk/openai');
+            return createOllama({
+                apiKey: 'ollama',  // Ollama doesn't need a real key
+                baseURL: creds.apiKey || 'http://localhost:11434/v1'
+            })(modelName);
+        }
+        case 'litellm': {
+            const { createOpenAI: createLiteLLM } = await import('@ai-sdk/openai');
+            return createLiteLLM({
+                apiKey: creds.apiKey || 'unused',
+                baseURL: creds.projectId || 'http://localhost:4000/v1'  // LiteLLM proxy URL stored in projectId
+            })(modelName);
+        }
         default:
             throw new Error(`Unsupported provider: ${providerBrand}`);
     }

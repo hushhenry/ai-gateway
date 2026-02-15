@@ -34,7 +34,43 @@ export const PROVIDER_MODELS: Record<string, string[]> = {
     ],
     openrouter: [
         'openrouter/auto'
-    ]
+    ],
+    xai: [
+        'grok-3',
+        'grok-3-mini',
+        'grok-2',
+    ],
+    moonshot: [
+        'moonshot-v1-auto',
+        'moonshot-v1-8k',
+        'moonshot-v1-32k',
+        'moonshot-v1-128k',
+        'kimi-latest',
+    ],
+    zhipu: [
+        'glm-4-plus',
+        'glm-4-long',
+        'glm-4-flash',
+        'glm-4v-plus',
+    ],
+    groq: [
+        'llama-3.3-70b-versatile',
+        'llama-3.1-8b-instant',
+        'mixtral-8x7b-32768',
+        'gemma2-9b-it',
+    ],
+    together: [
+        'meta-llama/Llama-3.3-70B-Instruct-Turbo',
+        'meta-llama/Meta-Llama-3.1-405B-Instruct-Turbo',
+        'mistralai/Mixtral-8x22B-Instruct-v0.1',
+        'Qwen/Qwen2.5-72B-Instruct-Turbo',
+    ],
+    minimax: [
+        'MiniMax-Text-01',
+        'abab6.5s-chat',
+    ],
+    ollama: [],  // dynamically discovered
+    litellm: [],  // dynamically discovered
 };
 
 export async function fetchModelsForProvider(providerId: string, apiKey?: string): Promise<string[]> {

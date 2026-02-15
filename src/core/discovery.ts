@@ -36,6 +36,32 @@ async function fetchAnthropicModels(apiKey: string, isOAuthToken: boolean): Prom
     return [];
 }
 
+/**
+ * Fetch models from an OpenAI-compatible /v1/models endpoint.
+ */
+async function fetchOpenAICompatModels(baseURL: string, apiKey: string): Promise<string[]> {
+    try {
+        const res = await fetch(`${baseURL}/models`, {
+            headers: apiKey ? { 'Authorization': `Bearer ${apiKey}` } : {},
+        });
+        if (!res.ok) return [];
+        const data = await res.json() as any;
+        if (data.data && Array.isArray(data.data)) {
+            return data.data.map((m: any) => m.id).filter((id: string) => id && typeof id === 'string');
+        }
+    } catch {}
+    return [];
+}
+
+const OPENAI_COMPAT_PROVIDERS: Record<string, string> = {
+    xai: 'https://api.x.ai/v1',
+    moonshot: 'https://api.moonshot.cn/v1',
+    zhipu: 'https://open.bigmodel.cn/api/paas/v4',
+    groq: 'https://api.groq.com/openai/v1',
+    together: 'https://api.together.xyz/v1',
+    minimax: 'https://api.minimax.chat/v1',
+};
+
 export async function fetchProviderModels(providerId: string, configPath?: string): Promise<string[]> {
     try {
         // For anthropic and anthropic-token, try the Anthropic /v1/models API with credentials
@@ -47,7 +73,6 @@ export async function fetchProviderModels(providerId: string, configPath?: strin
                 const models = await fetchAnthropicModels(creds.apiKey, isOAuth);
                 if (models.length > 0) return models;
             }
-            // Fallback: try models.dev
         }
 
         if (providerId === 'openrouter') {
@@ -56,6 +81,34 @@ export async function fetchProviderModels(providerId: string, configPath?: strin
             return data.data
                 .filter((m: any) => m.supported_parameters?.includes("tools"))
                 .map((m: any) => m.id);
+        }
+
+        // Ollama: local instance, fetch from /v1/models
+        if (providerId === 'ollama') {
+            const auth = loadAuth(configPath);
+            const baseURL = auth[providerId]?.apiKey || 'http://localhost:11434/v1';
+            return await fetchOpenAICompatModels(baseURL, '');
+        }
+
+        // LiteLLM: local proxy, fetch from /v1/models
+        if (providerId === 'litellm') {
+            const auth = loadAuth(configPath);
+            const baseURL = auth[providerId]?.projectId || 'http://localhost:4000/v1';
+            const apiKey = auth[providerId]?.apiKey || '';
+            return await fetchOpenAICompatModels(baseURL, apiKey);
+        }
+
+        // OpenAI-compatible providers: try their /v1/models endpoint
+        if (OPENAI_COMPAT_PROVIDERS[providerId]) {
+            const auth = loadAuth(configPath);
+            const creds = auth[providerId];
+            if (creds?.apiKey) {
+                const models = await fetchOpenAICompatModels(
+                    OPENAI_COMPAT_PROVIDERS[providerId],
+                    creds.apiKey,
+                );
+                if (models.length > 0) return models;
+            }
         }
 
         // For other providers, use models.dev as a fallback source
