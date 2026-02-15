@@ -44,13 +44,25 @@ export class AiGateway {
             try {
                 const provider = await getProvider(modelId, this.configPath);
                 
-                const options = {
+                const options: any = {
                     model: provider,
                     messages: body.messages,
                     temperature: body.temperature,
                     topP: body.top_p,
                     maxTokens: body.max_tokens,
                 };
+
+                // Forward tools in OpenAI format → Vercel AI SDK format
+                if (body.tools) {
+                    options.tools = body.tools.reduce((acc: any, tool: any) => {
+                        const fn = tool.function || tool;
+                        acc[fn.name] = {
+                            description: fn.description,
+                            parameters: fn.parameters,
+                        };
+                        return acc;
+                    }, {});
+                }
 
                 if (isStreaming) {
                     const result = await streamText(options);
@@ -89,7 +101,7 @@ export class AiGateway {
                                                 type: 'function',
                                                 function: {
                                                     name: part.toolName,
-                                                    arguments: part.args
+                                                    arguments: typeof part.args === 'string' ? part.args : JSON.stringify(part.args)
                                                 }
                                             }]
                                         },
@@ -131,7 +143,7 @@ export class AiGateway {
                                         type: 'function',
                                         function: {
                                             name: tc.toolName,
-                                            arguments: tc.args
+                                            arguments: typeof tc.args === 'string' ? tc.args : JSON.stringify(tc.args)
                                         }
                                     }))
                                 },
