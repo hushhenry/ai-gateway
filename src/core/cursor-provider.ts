@@ -190,6 +190,7 @@ export class CursorProvider implements LanguageModelV1 {
             '--print',
             '--output-format', 'stream-json',
             '--stream-partial-output',
+            '--force',  // skip workspace trust prompt (matches opencode-cursor behavior)
             '--model', model,
         ];
     }
