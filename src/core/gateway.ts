@@ -158,7 +158,9 @@ export class AiGateway {
             try {
                 const provider = await getProvider(modelId, this.configPath);
                 
-                const options = {
+                // Convert Anthropic messages to Vercel AI SDK format
+                // Vercel AI SDK handles system prompt automatically if passed in options
+                const options: any = {
                     model: provider,
                     messages: body.messages,
                     system: body.system,
@@ -166,6 +168,17 @@ export class AiGateway {
                     topP: body.top_p,
                     maxTokens: body.max_tokens,
                 };
+
+                // Support Anthropic tools
+                if (body.tools) {
+                    options.tools = body.tools.reduce((acc: any, tool: any) => {
+                        acc[tool.name] = {
+                            description: tool.description,
+                            parameters: tool.input_schema,
+                        };
+                        return acc;
+                    }, {});
+                }
 
                 if (isStreaming) {
                     const result = await streamText(options);
@@ -190,26 +203,58 @@ export class AiGateway {
                             }
                         })}\n\n`);
 
-                        await stream.write(`event: content_block_start\ndata: ${JSON.stringify({
-                            type: 'content_block_start',
-                            index: 0,
-                            content_block: { type: 'text', text: '' }
-                        })}\n\n`);
+                        let currentBlockIndex = -1;
 
                         for await (const part of result.fullStream) {
                             if (part.type === 'text-delta') {
+                                if (currentBlockIndex === -1) {
+                                    currentBlockIndex = 0;
+                                    await stream.write(`event: content_block_start\ndata: ${JSON.stringify({
+                                        type: 'content_block_start',
+                                        index: currentBlockIndex,
+                                        content_block: { type: 'text', text: '' }
+                                    })}\n\n`);
+                                }
                                 await stream.write(`event: content_block_delta\ndata: ${JSON.stringify({
                                     type: 'content_block_delta',
-                                    index: 0,
+                                    index: currentBlockIndex,
                                     delta: { type: 'text_delta', text: part.textDelta }
+                                })}\n\n`);
+                            } else if (part.type === 'tool-call') {
+                                currentBlockIndex++;
+                                await stream.write(`event: content_block_start\ndata: ${JSON.stringify({
+                                    type: 'content_block_start',
+                                    index: currentBlockIndex,
+                                    content_block: { 
+                                        type: 'tool_use', 
+                                        id: part.toolCallId,
+                                        name: part.toolName,
+                                        input: {} 
+                                    }
+                                })}\n\n`);
+
+                                await stream.write(`event: content_block_delta\ndata: ${JSON.stringify({
+                                    type: 'content_block_delta',
+                                    index: currentBlockIndex,
+                                    delta: { 
+                                        type: 'input_json_delta', 
+                                        partial_json: JSON.stringify(part.args) 
+                                    }
+                                })}\n\n`);
+
+                                await stream.write(`event: content_block_stop\ndata: ${JSON.stringify({
+                                    type: 'content_block_stop',
+                                    index: currentBlockIndex
                                 })}\n\n`);
                             }
                         }
 
-                        await stream.write(`event: content_block_stop\ndata: ${JSON.stringify({
-                            type: 'content_block_stop',
-                            index: 0
-                        })}\n\n`);
+                        if (currentBlockIndex === 0) {
+                            await stream.write(`event: content_block_stop\ndata: ${JSON.stringify({
+                                type: 'content_block_stop',
+                                index: 0
+                            })}\n\n`);
+                        }
 
                         await stream.write(`event: message_delta\ndata: ${JSON.stringify({
                             type: 'message_delta',
@@ -224,15 +269,29 @@ export class AiGateway {
                 } else {
                     const result = await generateText(options);
 
+                    const content: any[] = [];
+                    if (result.text) {
+                        content.push({ type: 'text', text: result.text });
+                    }
+                    
+                    if (result.toolCalls) {
+                        for (const tc of result.toolCalls) {
+                            content.push({
+                                type: 'tool_use',
+                                id: tc.toolCallId,
+                                name: tc.toolName,
+                                input: tc.args
+                            });
+                        }
+                    }
+
                     return c.json({
                         id: `msg-${Date.now()}`,
                         type: 'message',
                         role: 'assistant',
                         model: modelId,
-                        content: [
-                            { type: 'text', text: result.text }
-                        ],
-                        stop_reason: 'end_turn',
+                        content,
+                        stop_reason: result.finishReason === 'tool-calls' ? 'tool_use' : 'end_turn',
                         stop_sequence: null,
                         usage: {
                             input_tokens: result.usage.promptTokens,
