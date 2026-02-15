@@ -9,11 +9,17 @@ import { fetchProviderModels } from '../core/discovery.js';
 
 const PROVIDERS = [
     { id: 'openai', name: 'OpenAI' },
-    { id: 'anthropic', name: 'Anthropic' },
+    { id: 'anthropic', name: 'Anthropic', hasSubmenu: true },
     { id: 'google', name: 'Google (Gemini)', hasSubmenu: true },
     { id: 'github-copilot', name: 'GitHub Copilot (OAuth)' },
     { id: 'deepseek', name: 'DeepSeek' },
     { id: 'openrouter', name: 'OpenRouter' }
+];
+
+const ANTHROPIC_SUBMENU = [
+    { id: 'anthropic', name: 'Anthropic API key' },
+    { id: 'anthropic-token', name: 'Anthropic token (paste setup-token)' },
+    { id: 'back', name: 'Back' }
 ];
 
 const GOOGLE_SUBMENU = [
@@ -85,11 +91,12 @@ interface AppProps {
 }
 
 const App: React.FC<AppProps> = ({ initialProviderId, skipToModels, onOauthRequest }) => {
-    const [step, setStep] = useState<'select' | 'google_submenu' | 'input' | 'models' | 'done'>(
+    const [step, setStep] = useState<'select' | 'anthropic_submenu' | 'google_submenu' | 'input' | 'models' | 'done'>(
         skipToModels ? 'models' : 'select'
     );
     const [selectedIndex, setSelectedIndex] = useState(0);
     const [googleIndex, setGoogleIndex] = useState(0);
+    const [anthropicIndex, setAnthropicIndex] = useState(0);
     const [activeProviderId, setActiveProviderId] = useState(initialProviderId || '');
     const [apiKey, setApiKey] = useState('');
 
@@ -139,12 +146,28 @@ const App: React.FC<AppProps> = ({ initialProviderId, skipToModels, onOauthReque
                 const provider = PROVIDERS[selectedIndex];
                 if (provider.id === 'google') {
                     setStep('google_submenu');
+                } else if (provider.id === 'anthropic') {
+                    setStep('anthropic_submenu');
                 } else {
                     setActiveProviderId(provider.id);
                     prefetchModels(provider.id);
                     setStep('input');
                 }
             }
+        } else if (step === 'anthropic_submenu') {
+            if (key.upArrow) setAnthropicIndex(Math.max(0, anthropicIndex - 1));
+            if (key.downArrow) setAnthropicIndex(Math.min(ANTHROPIC_SUBMENU.length - 1, anthropicIndex + 1));
+            if (key.return) {
+                const sub = ANTHROPIC_SUBMENU[anthropicIndex];
+                if (sub.id === 'back') {
+                    setStep('select');
+                } else {
+                    setActiveProviderId(sub.id);
+                    prefetchModels(sub.id);
+                    setStep('input');
+                }
+            }
+            if (key.escape) setStep('select');
         } else if (step === 'google_submenu') {
             if (key.upArrow) setGoogleIndex(Math.max(0, googleIndex - 1));
             if (key.downArrow) setGoogleIndex(Math.min(GOOGLE_SUBMENU.length - 1, googleIndex + 1));
@@ -235,6 +258,17 @@ const App: React.FC<AppProps> = ({ initialProviderId, skipToModels, onOauthReque
         </Box>
     )), [googleIndex]);
 
+    const anthropicSubmenuList = useMemo(() => ANTHROPIC_SUBMENU.map((sub, index) => (
+        <Box key={sub.id}>
+            <Text color={index === anthropicIndex ? '#89B4FA' : '#6C7086'}>
+                {index === anthropicIndex ? '●' : '○'}
+            </Text>
+            <Text color={index === anthropicIndex ? '#CDD6F4' : '#6C7086'} bold={index === anthropicIndex}>
+                {' '}{sub.name}
+            </Text>
+        </Box>
+    )), [anthropicIndex]);
+
     const modelsList = useMemo(() => (
         <Box flexDirection="column" marginTop={1}>
             {availableModels.map((model, index) => (
@@ -271,6 +305,15 @@ const App: React.FC<AppProps> = ({ initialProviderId, skipToModels, onOauthReque
                     </Box>
                 </Box>
             )}
+            {step === 'anthropic_submenu' && (
+                <Box flexDirection="column">
+                    <Text color="#CDD6F4">Anthropic - Select authentication method:</Text>
+                    <Box flexDirection="column" marginTop={1}>
+                        {anthropicSubmenuList}
+                    </Box>
+                    <Box marginTop={1}><Text color="#6C7086">(Esc to go back)</Text></Box>
+                </Box>
+            )}
             {step === 'google_submenu' && (
                 <Box flexDirection="column">
                     <Text color="#CDD6F4">Google Gemini - Select authentication method:</Text>
@@ -285,8 +328,8 @@ const App: React.FC<AppProps> = ({ initialProviderId, skipToModels, onOauthReque
                     <Text color="#CDD6F4">Configuring: <Text color="#89B4FA" bold>{activeProviderId}</Text></Text>
                     <Box marginTop={1} paddingX={1} borderStyle="round" borderColor="#89B4FA" minHeight={3}>
                         <Box flexDirection="row">
-                            <Text color="#CDD6F4">API Key: </Text>
-                            {!apiKey && <Text color="#6C7086">Type or paste key here...</Text>}
+                            <Text color="#CDD6F4">{activeProviderId === 'anthropic-token' ? 'Setup Token' : 'API Key'}: </Text>
+                            {!apiKey && <Text color="#6C7086">Type or paste {activeProviderId === 'anthropic-token' ? 'token' : 'key'} here...</Text>}
                             <Text color="#A6E3A1">
                                 {'*'.repeat(apiKey.length)}
                             </Text>

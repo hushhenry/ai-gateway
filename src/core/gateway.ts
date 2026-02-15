@@ -149,6 +149,101 @@ export class AiGateway {
                 return c.json({ error: { message: error.message } }, 500);
             }
         });
+
+        this.app.post('/v1/messages', async (c) => {
+            const body = await c.req.json();
+            const modelId = body.model;
+            const isStreaming = body.stream === true;
+            
+            try {
+                const provider = await getProvider(modelId, this.configPath);
+                
+                const options = {
+                    model: provider,
+                    messages: body.messages,
+                    system: body.system,
+                    temperature: body.temperature,
+                    topP: body.top_p,
+                    maxTokens: body.max_tokens,
+                };
+
+                if (isStreaming) {
+                    const result = await streamText(options);
+                    const msgId = `msg-${Date.now()}`;
+
+                    c.header('Content-Type', 'text/event-stream');
+                    c.header('Cache-Control', 'no-cache');
+                    c.header('Connection', 'keep-alive');
+
+                    return stream(c, async (stream) => {
+                        await stream.write(`event: message_start\ndata: ${JSON.stringify({
+                            type: 'message_start',
+                            message: {
+                                id: msgId,
+                                type: 'message',
+                                role: 'assistant',
+                                model: modelId,
+                                content: [],
+                                stop_reason: null,
+                                stop_sequence: null,
+                                usage: { input_tokens: 0, output_tokens: 0 }
+                            }
+                        })}\n\n`);
+
+                        await stream.write(`event: content_block_start\ndata: ${JSON.stringify({
+                            type: 'content_block_start',
+                            index: 0,
+                            content_block: { type: 'text', text: '' }
+                        })}\n\n`);
+
+                        for await (const part of result.fullStream) {
+                            if (part.type === 'text-delta') {
+                                await stream.write(`event: content_block_delta\ndata: ${JSON.stringify({
+                                    type: 'content_block_delta',
+                                    index: 0,
+                                    delta: { type: 'text_delta', text: part.textDelta }
+                                })}\n\n`);
+                            }
+                        }
+
+                        await stream.write(`event: content_block_stop\ndata: ${JSON.stringify({
+                            type: 'content_block_stop',
+                            index: 0
+                        })}\n\n`);
+
+                        await stream.write(`event: message_delta\ndata: ${JSON.stringify({
+                            type: 'message_delta',
+                            delta: { stop_reason: 'end_turn', stop_sequence: null },
+                            usage: { output_tokens: 0 }
+                        })}\n\n`);
+
+                        await stream.write(`event: message_stop\ndata: ${JSON.stringify({
+                            type: 'message_stop'
+                        })}\n\n`);
+                    });
+                } else {
+                    const result = await generateText(options);
+
+                    return c.json({
+                        id: `msg-${Date.now()}`,
+                        type: 'message',
+                        role: 'assistant',
+                        model: modelId,
+                        content: [
+                            { type: 'text', text: result.text }
+                        ],
+                        stop_reason: 'end_turn',
+                        stop_sequence: null,
+                        usage: {
+                            input_tokens: result.usage.promptTokens,
+                            output_tokens: result.usage.completionTokens
+                        }
+                    });
+                }
+            } catch (error: any) {
+                return c.json({ error: { message: error.message } }, 500);
+            }
+        });
     }
 
     public fetch = (req: Request) => this.app.fetch(req);

@@ -34,6 +34,18 @@ export async function getProvider(modelId: string, configPath?: string) {
             const { createAnthropic } = await import('@ai-sdk/anthropic');
             return createAnthropic({ apiKey: creds.apiKey })(modelName);
         }
+        case 'anthropic-token': {
+            const { createAnthropic } = await import('@ai-sdk/anthropic');
+            return createAnthropic({ 
+                apiKey: '', // Disable default x-api-key
+                headers: {
+                    'Authorization': `Bearer ${creds.apiKey}`,
+                    'anthropic-beta': 'claude-code-20250219,oauth-2025-04-20',
+                    'user-agent': 'claude-cli/0.2.29 (external, cli)',
+                    'x-app': 'cli'
+                }
+            })(modelName);
+        }
         case 'google': {
             const { createGoogleGenerativeAI } = await import('@ai-sdk/google');
             return createGoogleGenerativeAI({ apiKey: creds.apiKey })(modelName);
