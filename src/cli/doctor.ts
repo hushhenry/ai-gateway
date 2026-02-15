@@ -40,6 +40,13 @@ interface Check {
     err?: string;
 }
 
+// Cursor/agent-based providers need longer timeouts since they spawn CLI processes
+const SLOW_PROVIDERS = new Set(['cursor']);
+function getTimeout(model: string): number {
+    const provider = model.split('/')[0];
+    return SLOW_PROVIDERS.has(provider) ? 120000 : 30000;
+}
+
 function parseSSE(raw: string): string[] {
     return raw.split(/\n\n/).flatMap(block =>
         block.split('\n').filter(l => l.startsWith('data: ')).map(l => l.slice(6))
@@ -48,13 +55,13 @@ function parseSSE(raw: string): string[] {
 
 // ─── /v1/chat/completions checks ──────────────────────────────────────────────
 
-async function chatText(base: string, model: string): Promise<Check> {
+async function chatText(base: string, model: string, timeout: number): Promise<Check> {
     const t0 = Date.now();
     try {
         const r = await fetch(`${base}/v1/chat/completions`, {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ model, stream: false, max_tokens: 50, messages: [{ role: 'user', content: 'Say "hello" and nothing else.' }] }),
-            signal: AbortSignal.timeout(30000),
+            signal: AbortSignal.timeout(timeout),
         });
         const j: any = await r.json();
         const ok = r.ok && !!j.choices?.[0]?.message?.content;
@@ -62,13 +69,13 @@ async function chatText(base: string, model: string): Promise<Check> {
     } catch (e: any) { return { name: '/chat/completions text', ok: false, ms: Date.now() - t0, err: e.message }; }
 }
 
-async function chatTextStream(base: string, model: string): Promise<Check> {
+async function chatTextStream(base: string, model: string, timeout: number): Promise<Check> {
     const t0 = Date.now();
     try {
         const r = await fetch(`${base}/v1/chat/completions`, {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ model, stream: true, max_tokens: 50, messages: [{ role: 'user', content: 'Say "hello" and nothing else.' }] }),
-            signal: AbortSignal.timeout(30000),
+            signal: AbortSignal.timeout(timeout),
         });
         const raw = await r.text();
         const lines = parseSSE(raw);
@@ -82,13 +89,13 @@ async function chatTextStream(base: string, model: string): Promise<Check> {
     } catch (e: any) { return { name: '/chat/completions text stream', ok: false, ms: Date.now() - t0, err: e.message }; }
 }
 
-async function chatTool(base: string, model: string): Promise<Check> {
+async function chatTool(base: string, model: string, timeout: number): Promise<Check> {
     const t0 = Date.now();
     try {
         const r = await fetch(`${base}/v1/chat/completions`, {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ model, stream: false, max_tokens: 200, messages: [{ role: 'user', content: 'What is the weather in Tokyo?' }], tools: TOOL_OPENAI }),
-            signal: AbortSignal.timeout(30000),
+            signal: AbortSignal.timeout(timeout),
         });
         const j: any = await r.json();
         const tc = j.choices?.[0]?.message?.tool_calls?.[0];
@@ -97,13 +104,13 @@ async function chatTool(base: string, model: string): Promise<Check> {
     } catch (e: any) { return { name: '/chat/completions tool', ok: false, ms: Date.now() - t0, err: e.message }; }
 }
 
-async function chatToolStream(base: string, model: string): Promise<Check> {
+async function chatToolStream(base: string, model: string, timeout: number): Promise<Check> {
     const t0 = Date.now();
     try {
         const r = await fetch(`${base}/v1/chat/completions`, {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ model, stream: true, max_tokens: 200, messages: [{ role: 'user', content: 'What is the weather in Tokyo?' }], tools: TOOL_OPENAI }),
-            signal: AbortSignal.timeout(30000),
+            signal: AbortSignal.timeout(timeout),
         });
         const raw = await r.text();
         const lines = parseSSE(raw);
@@ -126,13 +133,13 @@ async function chatToolStream(base: string, model: string): Promise<Check> {
 
 // ─── /v1/messages checks ──────────────────────────────────────────────────────
 
-async function msgText(base: string, model: string): Promise<Check> {
+async function msgText(base: string, model: string, timeout: number): Promise<Check> {
     const t0 = Date.now();
     try {
         const r = await fetch(`${base}/v1/messages`, {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ model, stream: false, max_tokens: 50, messages: [{ role: 'user', content: 'Say "hello" and nothing else.' }] }),
-            signal: AbortSignal.timeout(30000),
+            signal: AbortSignal.timeout(timeout),
         });
         const j: any = await r.json();
         const ok = r.ok && j.content?.some((b: any) => b.type === 'text');
@@ -140,13 +147,13 @@ async function msgText(base: string, model: string): Promise<Check> {
     } catch (e: any) { return { name: '/messages text', ok: false, ms: Date.now() - t0, err: e.message }; }
 }
 
-async function msgTextStream(base: string, model: string): Promise<Check> {
+async function msgTextStream(base: string, model: string, timeout: number): Promise<Check> {
     const t0 = Date.now();
     try {
         const r = await fetch(`${base}/v1/messages`, {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ model, stream: true, max_tokens: 50, messages: [{ role: 'user', content: 'Say "hello" and nothing else.' }] }),
-            signal: AbortSignal.timeout(30000),
+            signal: AbortSignal.timeout(timeout),
         });
         const raw = await r.text();
         const lines = parseSSE(raw);
@@ -159,13 +166,13 @@ async function msgTextStream(base: string, model: string): Promise<Check> {
     } catch (e: any) { return { name: '/messages text stream', ok: false, ms: Date.now() - t0, err: e.message }; }
 }
 
-async function msgTool(base: string, model: string): Promise<Check> {
+async function msgTool(base: string, model: string, timeout: number): Promise<Check> {
     const t0 = Date.now();
     try {
         const r = await fetch(`${base}/v1/messages`, {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ model, stream: false, max_tokens: 200, messages: [{ role: 'user', content: 'What is the weather in Tokyo?' }], tools: TOOL_ANTHROPIC }),
-            signal: AbortSignal.timeout(30000),
+            signal: AbortSignal.timeout(timeout),
         });
         const j: any = await r.json();
         const tb = j.content?.find((b: any) => b.type === 'tool_use');
@@ -174,13 +181,13 @@ async function msgTool(base: string, model: string): Promise<Check> {
     } catch (e: any) { return { name: '/messages tool', ok: false, ms: Date.now() - t0, err: e.message }; }
 }
 
-async function msgToolStream(base: string, model: string): Promise<Check> {
+async function msgToolStream(base: string, model: string, timeout: number): Promise<Check> {
     const t0 = Date.now();
     try {
         const r = await fetch(`${base}/v1/messages`, {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ model, stream: true, max_tokens: 200, messages: [{ role: 'user', content: 'What is the weather in Tokyo?' }], tools: TOOL_ANTHROPIC }),
-            signal: AbortSignal.timeout(30000),
+            signal: AbortSignal.timeout(timeout),
         });
         const raw = await r.text();
         const lines = parseSSE(raw);
@@ -258,19 +265,20 @@ export async function runDoctor(options: {
         console.log(`── ${model} ──`);
 
         const checks: Check[] = [];
+        const timeout = getTimeout(model);
 
         if (endpoint === 'chat' || endpoint === 'both') {
-            checks.push(await chatText(base, model));
-            checks.push(await chatTextStream(base, model));
-            checks.push(await chatTool(base, model));
-            checks.push(await chatToolStream(base, model));
+            checks.push(await chatText(base, model, timeout));
+            checks.push(await chatTextStream(base, model, timeout));
+            checks.push(await chatTool(base, model, timeout));
+            checks.push(await chatToolStream(base, model, timeout));
         }
 
         if (endpoint === 'messages' || endpoint === 'both') {
-            checks.push(await msgText(base, model));
-            checks.push(await msgTextStream(base, model));
-            checks.push(await msgTool(base, model));
-            checks.push(await msgToolStream(base, model));
+            checks.push(await msgText(base, model, timeout));
+            checks.push(await msgTextStream(base, model, timeout));
+            checks.push(await msgTool(base, model, timeout));
+            checks.push(await msgToolStream(base, model, timeout));
         }
 
         for (const c of checks) {

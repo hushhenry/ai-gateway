@@ -256,8 +256,8 @@ export class CursorProvider implements LanguageModelV1 {
 
             const timeout = setTimeout(() => {
                 child.kill('SIGTERM');
-                reject(new Error('cursor-agent timed out after 60s'));
-            }, 60000);
+                reject(new Error('cursor-agent timed out after 120s'));
+            }, 120000);
 
             child.on('close', (code) => {
                 clearTimeout(timeout);
@@ -279,26 +279,15 @@ export class CursorProvider implements LanguageModelV1 {
                         if (extracted) text = extracted;
                     }
 
-                    if (event.type === 'tool_call') {
-                        const tcEvent = event as StreamJsonToolCallEvent;
-                        const toolName = inferToolName(tcEvent);
-                        const toolKey = Object.keys(tcEvent.tool_call)[0];
-                        const entry = toolKey ? tcEvent.tool_call[toolKey] : undefined;
-                        if (entry?.args) {
-                            toolCalls.push({
-                                toolCallType: 'function',
-                                toolCallId: tcEvent.call_id || `call_${Date.now()}`,
-                                toolName,
-                                args: JSON.stringify(entry.args),
-                            });
-                        }
-                    }
+                    // Note: cursor-agent's internal tool_call events (read, write, bash, etc.)
+                    // are agent-internal actions — cursor-agent executes them itself and returns
+                    // the final text result. We do NOT expose them to the SDK as tool calls.
                 }
 
                 resolve({
                     text,
-                    toolCalls,
-                    finishReason: toolCalls.length > 0 ? 'tool-calls' : 'stop',
+                    toolCalls: [],
+                    finishReason: 'stop',
                     usage: { promptTokens: 0, completionTokens: 0 },
                     rawCall: { args },
                     rawResponse: {},
@@ -331,9 +320,6 @@ export class CursorProvider implements LanguageModelV1 {
 
         const tracker = new DeltaTracker();
         const lineBuffer = new LineBuffer();
-        const startedToolIds = new Set<string>();
-        const toolArgsById = new Map<string, string>();
-        let hasToolCalls = false;
 
         const stream = new ReadableStream<LanguageModelV1StreamPart>({
             start(controller) {
@@ -380,33 +366,9 @@ export class CursorProvider implements LanguageModelV1 {
                             }
                         }
 
-                        // Tool calls
-                        if (event.type === 'tool_call') {
-                            const tcEvent = event as StreamJsonToolCallEvent;
-                            const toolCallId = tcEvent.call_id || (tcEvent as any).tool_call_id || `call_${Date.now()}`;
-                            const toolName = inferToolName(tcEvent);
-                            const toolKey = Object.keys(tcEvent.tool_call ?? {})[0];
-                            const entry = toolKey ? tcEvent.tool_call[toolKey] : undefined;
-
-                            if (entry?.args) {
-                                hasToolCalls = true;
-                                const argsText = JSON.stringify(entry.args);
-
-                                if (!startedToolIds.has(toolCallId)) {
-                                    startedToolIds.add(toolCallId);
-                                    // Emit complete tool call
-                                    controller.enqueue({
-                                        type: 'tool-call',
-                                        toolCallType: 'function',
-                                        toolCallId,
-                                        toolName,
-                                        args: argsText,
-                                    });
-                                }
-
-                                toolArgsById.set(toolCallId, argsText);
-                            }
-                        }
+                        // Note: cursor-agent's tool_call events are agent-internal
+                        // (read, write, bash, etc.) — cursor-agent handles them itself.
+                        // We only stream the text output to the SDK.
                     }
                 });
 
@@ -429,7 +391,7 @@ export class CursorProvider implements LanguageModelV1 {
 
                     controller.enqueue({
                         type: 'finish',
-                        finishReason: hasToolCalls ? 'tool-calls' : 'stop',
+                        finishReason: 'stop',
                         usage: { promptTokens: 0, completionTokens: 0 },
                     });
                     controller.close();
