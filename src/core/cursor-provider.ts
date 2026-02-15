@@ -153,6 +153,38 @@ export class CursorProvider implements LanguageModelV1 {
         private cwd: string = process.cwd(),
     ) {}
 
+    /**
+     * Discover available models by running `cursor-agent models`.
+     * Follows the same approach as opencode-cursor's ModelDiscoveryService.
+     * Throws with install instructions if cursor-agent is not available.
+     */
+    static async discoverModels(agentPath?: string): Promise<Array<{ id: string; name: string }>> {
+        const execPath = agentPath || process.env.CURSOR_AGENT_EXECUTABLE || 'cursor-agent';
+        const { execFile } = await import('child_process');
+        const { promisify } = await import('util');
+        const execFileAsync = promisify(execFile);
+
+        try {
+            const { stdout } = await execFileAsync(execPath, ['models'], { timeout: 15000 });
+            const models: Array<{ id: string; name: string }> = [];
+            for (const line of stdout.split('\n')) {
+                // Parse lines like "gpt-5.2 - GPT-5.2" or "auto - Auto"
+                const match = line.match(/^(\S+)\s+-\s+(.+)/);
+                if (match && match[1] && !line.includes('Available models') && !line.includes('Tip:')) {
+                    models.push({ id: match[1], name: match[2].trim() });
+                }
+            }
+            return models;
+        } catch (e: any) {
+            throw new Error(
+                `cursor-agent not available: ${e.message}\n\n` +
+                `To use the Cursor provider, install cursor-agent and login:\n` +
+                `  → https://cursor.com/cn/docs/cli/overview\n` +
+                `  → Run: cursor-agent login`
+            );
+        }
+    }
+
     private buildArgs(model: string): string[] {
         return [
             '--print',

@@ -1,8 +1,5 @@
 import { loadAuth } from '../core/auth.js';
-import { execFile } from 'child_process';
-import { promisify } from 'util';
-
-const execFileAsync = promisify(execFile);
+import { CursorProvider } from './cursor-provider.js';
 
 /**
  * Fetch Anthropic models using /v1/models endpoint.
@@ -57,35 +54,6 @@ async function fetchOpenAICompatModels(baseURL: string, apiKey: string): Promise
     return [];
 }
 
-/**
- * Fetch models from cursor-agent CLI.
- * Parses output of `cursor-agent models` which has format:
- *   model-id - Model Name
- */
-async function fetchCursorModels(): Promise<string[]> {
-    try {
-        const agentPath = process.env.CURSOR_AGENT_EXECUTABLE || 'cursor-agent';
-        const { stdout } = await execFileAsync(agentPath, ['models'], { timeout: 15000 });
-        const models: string[] = [];
-        for (const line of stdout.split('\n')) {
-            // Match lines like "gpt-5.2 - GPT-5.2" or "auto - Auto"
-            const match = line.match(/^(\S+)\s+-\s+/);
-            if (match && match[1] && !line.includes('Available models') && !line.includes('Tip:')) {
-                models.push(match[1]);
-            }
-        }
-        return models;
-    } catch (e: any) {
-        // cursor-agent not installed or not authenticated
-        throw new Error(
-            `cursor-agent not available: ${e.message}\n\n` +
-            `To use the Cursor provider, install cursor-agent and login:\n` +
-            `  → https://cursor.com/cn/docs/cli/overview\n` +
-            `  → Run: cursor-agent login`
-        );
-    }
-}
-
 const OPENAI_COMPAT_PROVIDERS: Record<string, string> = {
     xai: 'https://api.x.ai/v1',
     moonshot: 'https://api.moonshot.cn/v1',
@@ -136,9 +104,10 @@ export async function fetchProviderModels(providerId: string, configPath?: strin
             return await fetchOpenAICompatModels(baseURL, apiKey);
         }
 
-        // Cursor: discover models via cursor-agent CLI
+        // Cursor: discover models via CursorProvider (wraps cursor-agent CLI)
         if (providerId === 'cursor') {
-            return await fetchCursorModels();
+            const models = await CursorProvider.discoverModels();
+            return models.map(m => m.id);
         }
 
         // OpenAI-compatible providers: try their /v1/models endpoint
