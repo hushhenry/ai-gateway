@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { render, Text, Box, useInput } from 'ink';
 import open from 'open';
+import readline from 'node:readline';
 import { saveAuth, loadAuth } from '../core/auth.js';
 import { getGeminiAuthUrl, exchangeGeminiCode } from '../utils/oauth/google-gemini.js';
 import { PROVIDER_MODELS } from '../core/models.js';
@@ -21,17 +22,70 @@ const GOOGLE_SUBMENU = [
     { id: 'antigravity', name: 'Antigravity (Sandbox)' }
 ];
 
-const App = () => {
-    const [step, setStep] = useState<'select' | 'google_submenu' | 'input' | 'oauth' | 'models' | 'done'>('select');
+/**
+ * Performs the OAuth flow outside of Ink, writing the URL directly to stdout
+ * so it appears as a single unbroken clickable line in the terminal.
+ * This mirrors the approach used by gemini-cli's authWithUserCode().
+ */
+async function performOauthFlow(providerId: string): Promise<boolean> {
+    const { url, verifier } = await getGeminiAuthUrl();
+
+    // Try to open the URL in the browser
+    try { await open(url); } catch (e) {}
+
+    // Write URL directly to stdout — no framework wrapping, single clickable line
+    process.stdout.write('\nPlease visit the following URL to authorize the application:\n\n');
+    process.stdout.write(url + '\n\n');
+
+    // Read authorization code via readline (same approach as gemini-cli)
+    const code = await new Promise<string>((resolve) => {
+        const rl = readline.createInterface({
+            input: process.stdin,
+            output: process.stdout,
+            terminal: true,
+        });
+        rl.question('Enter the authorization code: ', (answer) => {
+            rl.close();
+            resolve(answer.trim());
+        });
+    });
+
+    if (!code) {
+        process.stdout.write('Authorization code is required.\n');
+        return false;
+    }
+
+    try {
+        await exchangeGeminiCode(code, verifier);
+        const auth = loadAuth();
+        if (providerId !== 'google' && auth['google']) {
+            auth[providerId] = { ...auth['google'], type: 'oauth' };
+            delete auth['google'];
+            saveAuth(auth);
+        }
+        process.stdout.write('\n✅ Authentication successful!\n\n');
+        return true;
+    } catch (e: any) {
+        process.stdout.write(`\nError: ${e.message}\n`);
+        return false;
+    }
+}
+
+interface AppProps {
+    initialProviderId?: string;
+    skipToModels?: boolean;
+    onOauthRequest?: (providerId: string) => void;
+}
+
+const App: React.FC<AppProps> = ({ initialProviderId, skipToModels, onOauthRequest }) => {
+    const [step, setStep] = useState<'select' | 'google_submenu' | 'input' | 'models' | 'done'>(
+        skipToModels ? 'models' : 'select'
+    );
     const [selectedIndex, setSelectedIndex] = useState(0);
     const [googleIndex, setGoogleIndex] = useState(0);
-    const [activeProviderId, setActiveProviderId] = useState('');
+    const [activeProviderId, setActiveProviderId] = useState(initialProviderId || '');
     const [apiKey, setApiKey] = useState('');
-    const [oauthUrl, setOauthUrl] = useState('');
-    const [verifier, setVerifier] = useState('');
-    const [authCode, setAuthCode] = useState('');
-    const [status, setStatus] = useState('');
-    
+
     const [availableModels, setAvailableModels] = useState<string[]>([]);
     const [selectedModels, setSelectedModels] = useState<string[]>([]);
     const [modelCursor, setModelCursor] = useState(0);
@@ -63,6 +117,13 @@ const App = () => {
         setStep('models');
     };
 
+    // If resuming after OAuth, prefetch models immediately
+    useEffect(() => {
+        if (skipToModels && initialProviderId) {
+            prefetchModels(initialProviderId);
+        }
+    }, []);
+
     useInput(async (input, key) => {
         if (step === 'select') {
             if (key.upArrow) setSelectedIndex(Math.max(0, selectedIndex - 1));
@@ -82,38 +143,16 @@ const App = () => {
             if (key.downArrow) setGoogleIndex(Math.min(GOOGLE_SUBMENU.length - 1, googleIndex + 1));
             if (key.return) {
                 const sub = GOOGLE_SUBMENU[googleIndex];
-                setActiveProviderId(sub.id);
-                prefetchModels(sub.id);
                 if (sub.id === 'google') {
+                    setActiveProviderId(sub.id);
+                    prefetchModels(sub.id);
                     setStep('input');
                 } else {
-                    const { url, verifier } = await getGeminiAuthUrl();
-                    setOauthUrl(url);
-                    setVerifier(verifier);
-                    setStep('oauth');
-                    try { await open(url); } catch (e) {}
+                    // Signal to parent to handle OAuth outside Ink
+                    onOauthRequest?.(sub.id);
                 }
             }
             if (key.escape) setStep('select');
-        } else if (step === 'oauth') {
-            if (key.return && authCode) {
-                try {
-                    await exchangeGeminiCode(authCode, verifier);
-                    const auth = loadAuth();
-                    if (activeProviderId !== 'google' && auth['google']) {
-                        auth[activeProviderId] = { ...auth['google'], type: 'oauth' };
-                        delete auth['google'];
-                        saveAuth(auth);
-                    }
-                    moveToModelSelection(activeProviderId);
-                } catch (e: any) {
-                    setStatus(`Error: ${e.message}`);
-                }
-            } else if (key.backspace || key.delete) {
-                setAuthCode(authCode.slice(0, -1));
-            } else if (input && !key.ctrl && !key.meta) {
-                setAuthCode(authCode + input);
-            }
         } else if (step === 'input') {
             if (key.return) {
                 moveToModelSelection(activeProviderId);
@@ -212,26 +251,6 @@ const App = () => {
         </Box>
     ), [availableModels, modelCursor, selectedModels]);
 
-    if (step === 'oauth') {
-        return (
-            <Box flexDirection="column" paddingX={0}>
-                <Text>Please visit the following URL to authorize the application:</Text>
-                <Text> </Text>
-                <Text>{oauthUrl}</Text>
-                <Text> </Text>
-                <Box flexDirection="row">
-                    <Text>Enter the authorization code: </Text>
-                    <Text color="#A6E3A1">{authCode}</Text>
-                    {showCursor && <Text backgroundColor="#CDD6F4" color="#1E1E2E"> </Text>}
-                </Box>
-                {status && <Box marginTop={1}><Text color="#F38BA8">{status}</Text></Box>}
-                <Box marginTop={1}>
-                    <Text color="#6C7086">(Press Enter to verify, Esc to cancel)</Text>
-                </Box>
-            </Box>
-        );
-    }
-
     return (
         <Box flexDirection="column" padding={1} borderStyle="round" borderColor="#89B4FA">
             <Box marginBottom={1}>
@@ -300,5 +319,38 @@ const App = () => {
 };
 
 export async function runLoginTui() {
-    render(<App />);
+    let oauthProviderId: string | null = null;
+
+    const startTui = (props: AppProps = {}) => {
+        return new Promise<void>((resolve) => {
+            const instance = render(
+                <App
+                    {...props}
+                    onOauthRequest={(providerId) => {
+                        oauthProviderId = providerId;
+                        instance.unmount();
+                    }}
+                />
+            );
+            instance.waitUntilExit().then(resolve);
+        });
+    };
+
+    // Initial TUI render
+    await startTui();
+
+    // If OAuth was requested, handle it outside Ink then resume
+    while (oauthProviderId) {
+        const providerId = oauthProviderId;
+        oauthProviderId = null;
+
+        const success = await performOauthFlow(providerId);
+        if (success) {
+            // Resume TUI at model selection step
+            await startTui({ initialProviderId: providerId, skipToModels: true });
+        } else {
+            // OAuth failed, restart TUI from the beginning
+            await startTui();
+        }
+    }
 }
