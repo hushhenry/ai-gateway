@@ -1,4 +1,4 @@
-import { loadAuth, getCredentials } from './auth.js';
+import { loadAuth, getCredentials, type Credentials } from './auth.js';
 import { GeminiCliProvider } from './gemini-cli-provider.js';
 
 const GEMINI_CLI_HEADERS = {
@@ -134,6 +134,48 @@ export async function getProvider(modelId: string, configPath?: string) {
                 apiKey: creds.apiKey || 'unused',
                 baseURL: creds.projectId || 'http://localhost:4000/v1'  // LiteLLM proxy URL stored in projectId
             })(modelName);
+        }
+        case 'azure': {
+            const { createAzure } = await import('@ai-sdk/azure');
+            // creds.apiKey = Azure API key
+            // creds.projectId = resource name (e.g., "my-resource")
+            // The model name is the deployment name
+            const resourceName = creds.projectId;
+            if (!resourceName) {
+                throw new Error('Azure OpenAI requires a resource name. Set it via the TUI or auth.json (projectId field).');
+            }
+            return createAzure({
+                apiKey: creds.apiKey,
+                resourceName,
+            })(modelName);
+        }
+        case 'vertex': {
+            const { createVertex } = await import('@ai-sdk/google-vertex');
+            // creds.projectId = Google Cloud project ID
+            // creds.apiKey = location (e.g., "us-central1"), stored as apiKey for simplicity
+            const project = creds.projectId;
+            const location = creds.apiKey || 'us-central1';
+            if (!project) {
+                throw new Error('Vertex AI requires a project ID. Set GOOGLE_CLOUD_PROJECT or configure via TUI.');
+            }
+            return createVertex({
+                project,
+                location,
+            })(modelName);
+        }
+        case 'bedrock': {
+            const { createAmazonBedrock } = await import('@ai-sdk/amazon-bedrock');
+            // creds.apiKey = AWS access key ID
+            // creds.projectId = AWS secret access key
+            // creds.refresh = AWS region (reusing refresh field)
+            const region = creds.refresh || process.env.AWS_REGION || 'us-east-1';
+            // If credentials are provided, use them; otherwise rely on AWS SDK default chain
+            const bedrockConfig: any = { region };
+            if (creds.apiKey && creds.projectId) {
+                bedrockConfig.accessKeyId = creds.apiKey;
+                bedrockConfig.secretAccessKey = creds.projectId;
+            }
+            return createAmazonBedrock(bedrockConfig)(modelName);
         }
         default:
             throw new Error(`Unsupported provider: ${providerBrand}`);

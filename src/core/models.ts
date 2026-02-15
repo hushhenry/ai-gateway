@@ -71,6 +71,23 @@ export const PROVIDER_MODELS: Record<string, string[]> = {
     ],
     ollama: [],  // dynamically discovered
     litellm: [],  // dynamically discovered
+    azure: [],  // deployment-specific, dynamically discovered
+    vertex: [
+        'gemini-2.0-flash',
+        'gemini-2.0-flash-lite',
+        'gemini-1.5-pro',
+        'gemini-1.5-flash',
+        'gemini-2.5-pro',
+        'gemini-2.5-flash',
+    ],
+    bedrock: [
+        'anthropic.claude-opus-4-20250514-v1:0',
+        'anthropic.claude-sonnet-4-20250514-v1:0',
+        'anthropic.claude-sonnet-4-5-20250514-v1:0',
+        'anthropic.claude-3-5-haiku-20241022-v1:0',
+        'us.amazon.nova-pro-v1:0',
+        'us.amazon.nova-lite-v1:0',
+    ],
 };
 
 export async function fetchModelsForProvider(providerId: string, apiKey?: string): Promise<string[]> {

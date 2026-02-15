@@ -22,6 +22,9 @@ const PROVIDERS = [
     { id: 'minimax', name: 'MiniMax' },
     { id: 'ollama', name: 'Ollama (Local)' },
     { id: 'litellm', name: 'LiteLLM (Proxy)' },
+    { id: 'azure', name: 'Azure OpenAI' },
+    { id: 'vertex', name: 'Google Vertex AI' },
+    { id: 'bedrock', name: 'Amazon Bedrock' },
 ];
 
 const ANTHROPIC_SUBMENU = [
@@ -99,7 +102,7 @@ interface AppProps {
 }
 
 const App: React.FC<AppProps> = ({ initialProviderId, skipToModels, onOauthRequest }) => {
-    const [step, setStep] = useState<'select' | 'anthropic_submenu' | 'google_submenu' | 'input' | 'models' | 'done'>(
+    const [step, setStep] = useState<'select' | 'anthropic_submenu' | 'google_submenu' | 'input' | 'input_extra' | 'input_extra2' | 'models' | 'done'>(
         skipToModels ? 'models' : 'select'
     );
     const [selectedIndex, setSelectedIndex] = useState(0);
@@ -107,6 +110,8 @@ const App: React.FC<AppProps> = ({ initialProviderId, skipToModels, onOauthReque
     const [anthropicIndex, setAnthropicIndex] = useState(0);
     const [activeProviderId, setActiveProviderId] = useState(initialProviderId || '');
     const [apiKey, setApiKey] = useState('');
+    const [extraField, setExtraField] = useState('');
+    const [extraField2, setExtraField2] = useState('');
 
     const [availableModels, setAvailableModels] = useState<string[]>([]);
     const [selectedModels, setSelectedModels] = useState<string[]>([]);
@@ -192,34 +197,82 @@ const App: React.FC<AppProps> = ({ initialProviderId, skipToModels, onOauthReque
             }
             if (key.escape) setStep('select');
         } else if (step === 'input') {
-            if (key.return && (apiKey || activeProviderId === 'ollama' || activeProviderId === 'litellm')) {
-                // Save credentials first so fetchProviderModels can use them
-                const auth = loadAuth();
-                if (activeProviderId === 'ollama') {
-                    auth[activeProviderId] = {
-                        apiKey: apiKey || 'http://localhost:11434/v1',
-                        type: 'key',
-                    };
-                } else if (activeProviderId === 'litellm') {
-                    auth[activeProviderId] = {
-                        apiKey: 'unused',
-                        projectId: apiKey || 'http://localhost:4000/v1',
-                        type: 'key',
-                    };
+            const MULTI_FIELD_PROVIDERS = ['azure', 'vertex', 'bedrock'];
+            const ALLOW_EMPTY = ['ollama', 'litellm', 'bedrock'];
+            if (key.return && (apiKey || ALLOW_EMPTY.includes(activeProviderId))) {
+                if (MULTI_FIELD_PROVIDERS.includes(activeProviderId)) {
+                    // Go to extra field input
+                    setStep('input_extra');
                 } else {
-                    auth[activeProviderId] = { 
-                        apiKey, 
-                        type: activeProviderId === 'anthropic-token' ? 'oauth' : 'key' 
-                    };
+                    // Save credentials first so fetchProviderModels can use them
+                    const auth = loadAuth();
+                    if (activeProviderId === 'ollama') {
+                        auth[activeProviderId] = {
+                            apiKey: apiKey || 'http://localhost:11434/v1',
+                            type: 'key',
+                        };
+                    } else if (activeProviderId === 'litellm') {
+                        auth[activeProviderId] = {
+                            apiKey: 'unused',
+                            projectId: apiKey || 'http://localhost:4000/v1',
+                            type: 'key',
+                        };
+                    } else {
+                        auth[activeProviderId] = { 
+                            apiKey, 
+                            type: activeProviderId === 'anthropic-token' ? 'oauth' : 'key' 
+                        };
+                    }
+                    saveAuth(auth);
+                    // Now fetch models with credentials available
+                    await prefetchModels(activeProviderId);
+                    moveToModelSelection(activeProviderId);
                 }
-                saveAuth(auth);
-                // Now fetch models with credentials available
-                await prefetchModels(activeProviderId);
-                moveToModelSelection(activeProviderId);
             } else if (key.backspace || key.delete) {
                 setApiKey(apiKey.slice(0, -1));
             } else if (input && !key.ctrl && !key.meta) {
                 setApiKey(apiKey + input);
+            }
+        } else if (step === 'input_extra') {
+            if (key.return) {
+                if (activeProviderId === 'bedrock') {
+                    // Bedrock needs a third field (region)
+                    setStep('input_extra2');
+                } else {
+                    // Azure: apiKey=API Key, extraField=Resource Name
+                    // Vertex: apiKey=Project ID, extraField=Location
+                    const auth = loadAuth();
+                    if (activeProviderId === 'azure') {
+                        auth[activeProviderId] = { apiKey, projectId: extraField, type: 'key' };
+                    } else if (activeProviderId === 'vertex') {
+                        auth[activeProviderId] = { apiKey: extraField || 'us-central1', projectId: apiKey, type: 'key' };
+                    }
+                    saveAuth(auth);
+                    await prefetchModels(activeProviderId);
+                    moveToModelSelection(activeProviderId);
+                }
+            } else if (key.backspace || key.delete) {
+                setExtraField(extraField.slice(0, -1));
+            } else if (input && !key.ctrl && !key.meta) {
+                setExtraField(extraField + input);
+            }
+        } else if (step === 'input_extra2') {
+            if (key.return) {
+                // Bedrock: apiKey=Access Key ID, extraField=Secret Access Key, extraField2=Region
+                const auth = loadAuth();
+                auth[activeProviderId] = {
+                    apiKey,
+                    projectId: extraField,
+                    refresh: extraField2 || 'us-east-1',
+                    type: 'key',
+                };
+                saveAuth(auth);
+                await prefetchModels(activeProviderId);
+                moveToModelSelection(activeProviderId);
+            } else if (key.backspace || key.delete) {
+                setExtraField2(extraField2.slice(0, -1));
+            } else if (input && !key.ctrl && !key.meta) {
+                setExtraField2(extraField2 + input);
             }
         } else if (step === 'models') {
             if (isFetchingModels && !availableModels.length) return;
@@ -366,12 +419,16 @@ const App: React.FC<AppProps> = ({ initialProviderId, skipToModels, onOauthReque
                                 activeProviderId === 'anthropic-token' ? 'Setup Token' :
                                 activeProviderId === 'ollama' ? 'Base URL' :
                                 activeProviderId === 'litellm' ? 'Proxy URL' :
+                                activeProviderId === 'vertex' ? 'Project ID' :
+                                activeProviderId === 'bedrock' ? 'AWS Access Key ID' :
                                 'API Key'
                             }: </Text>
                             {!apiKey && <Text color="#6C7086">
                                 {activeProviderId === 'ollama' ? 'http://localhost:11434 (default, press Enter to skip)' :
                                  activeProviderId === 'litellm' ? 'http://localhost:4000 (default, press Enter to skip)' :
                                  activeProviderId === 'anthropic-token' ? 'Type or paste token here...' :
+                                 activeProviderId === 'vertex' ? 'e.g. my-gcp-project' :
+                                 activeProviderId === 'bedrock' ? 'AWS Access Key ID (or leave empty for default credentials)' :
                                  'Type or paste key here...'}
                             </Text>}
                             <Text color="#A6E3A1">
@@ -383,6 +440,44 @@ const App: React.FC<AppProps> = ({ initialProviderId, skipToModels, onOauthReque
                     <Box marginTop={1}>
                         <Text color="#6C7086">(Press Enter to continue)</Text>
                     </Box>
+                </Box>
+            )}
+            {step === 'input_extra' && (
+                <Box flexDirection="column">
+                    <Text color="#CDD6F4">Configuring: <Text color="#89B4FA" bold>{activeProviderId}</Text> (step 2)</Text>
+                    <Box marginTop={1} paddingX={1} borderStyle="round" borderColor="#89B4FA" minHeight={3}>
+                        <Box flexDirection="row">
+                            <Text color="#CDD6F4">{
+                                activeProviderId === 'azure' ? 'Resource Name' :
+                                activeProviderId === 'vertex' ? 'Location' :
+                                activeProviderId === 'bedrock' ? 'AWS Secret Access Key' :
+                                'Extra'
+                            }: </Text>
+                            {!extraField && <Text color="#6C7086">
+                                {activeProviderId === 'azure' ? 'e.g. my-openai-resource' :
+                                 activeProviderId === 'vertex' ? 'us-central1 (default, press Enter to skip)' :
+                                 activeProviderId === 'bedrock' ? 'AWS Secret Access Key' :
+                                 '...'}
+                            </Text>}
+                            <Text color="#A6E3A1">{'*'.repeat(extraField.length)}</Text>
+                            {showCursor && <Text backgroundColor="#CDD6F4" color="#1E1E2E"> </Text>}
+                        </Box>
+                    </Box>
+                    <Box marginTop={1}><Text color="#6C7086">(Press Enter to continue)</Text></Box>
+                </Box>
+            )}
+            {step === 'input_extra2' && (
+                <Box flexDirection="column">
+                    <Text color="#CDD6F4">Configuring: <Text color="#89B4FA" bold>{activeProviderId}</Text> (step 3)</Text>
+                    <Box marginTop={1} paddingX={1} borderStyle="round" borderColor="#89B4FA" minHeight={3}>
+                        <Box flexDirection="row">
+                            <Text color="#CDD6F4">AWS Region: </Text>
+                            {!extraField2 && <Text color="#6C7086">us-east-1 (default, press Enter to skip)</Text>}
+                            <Text color="#A6E3A1">{extraField2}</Text>
+                            {showCursor && <Text backgroundColor="#CDD6F4" color="#1E1E2E"> </Text>}
+                        </Box>
+                    </Box>
+                    <Box marginTop={1}><Text color="#6C7086">(Press Enter to continue)</Text></Box>
                 </Box>
             )}
             {step === 'models' && (
