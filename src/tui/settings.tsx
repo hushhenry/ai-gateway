@@ -202,8 +202,12 @@ const App: React.FC<AppProps> = ({ initialProviderId, skipToModels, onOauthReque
             }
         } else if (step === 'models') {
             if (isFetchingModels && !availableModels.length) return;
-            if (key.upArrow) setModelCursor(Math.max(0, modelCursor - 1));
-            if (key.downArrow) setModelCursor(Math.min(availableModels.length, modelCursor + 1));
+            if (key.upArrow) {
+                setModelCursor(modelCursor === 0 ? availableModels.length : modelCursor - 1);
+            }
+            if (key.downArrow) {
+                setModelCursor(modelCursor === availableModels.length ? 0 : modelCursor + 1);
+            }
             if (input === ' ') {
                 if (modelCursor === availableModels.length) {
                     if (selectedModels.length === availableModels.length) {
