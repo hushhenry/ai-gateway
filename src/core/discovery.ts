@@ -60,6 +60,11 @@ const OPENAI_COMPAT_PROVIDERS: Record<string, string> = {
     groq: 'https://api.groq.com/openai/v1',
     together: 'https://api.together.xyz/v1',
     minimax: 'https://api.minimax.chat/v1',
+    cerebras: 'https://api.cerebras.ai/v1',
+    mistral: 'https://api.mistral.ai/v1',
+    huggingface: 'https://router.huggingface.co/v1',
+    opencode: 'https://opencode.ai/zen/v1',
+    zai: 'https://api.z.ai/api/coding/paas/v4',
 };
 
 export async function fetchProviderModels(providerId: string, configPath?: string): Promise<string[]> {

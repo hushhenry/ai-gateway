@@ -88,6 +88,48 @@ export const PROVIDER_MODELS: Record<string, string[]> = {
         'us.amazon.nova-pro-v1:0',
         'us.amazon.nova-lite-v1:0',
     ],
+    cerebras: [
+        'zai-glm-4.6',
+        'llama-4-scout-17b-16e-instruct',
+    ],
+    mistral: [
+        'devstral-medium-latest',
+        'mistral-medium-latest',
+        'codestral-latest',
+    ],
+    huggingface: [
+        'moonshotai/Kimi-K2.5',
+        'Qwen/Qwen3-Coder-Plus-Instruct',
+    ],
+    opencode: [
+        'claude-opus-4-6',
+        'claude-sonnet-4-5-20250514',
+    ],
+    zai: [
+        'glm-4.6',
+        'glm-4-plus',
+    ],
+    'minimax-cn': [
+        'MiniMax-M2.1',
+        'MiniMax-M1',
+    ],
+    'kimi-coding': [
+        'kimi-k2-thinking',
+        'kimi-k2',
+    ],
+    'vercel-ai-gateway': [],  // dynamic
+    'github-copilot': [
+        'claude-sonnet-4-5-20250514',
+        'gpt-4o',
+        'o3-mini',
+    ],
+    'openai-codex': [
+        'gpt-5.1-codex',
+    ],
+    'qwen-cli': [
+        'qwen3-coder-plus',
+        'qwen3-coder-flash',
+    ],
 };
 
 export async function fetchModelsForProvider(providerId: string, apiKey?: string): Promise<string[]> {

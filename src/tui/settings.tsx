@@ -4,6 +4,9 @@ import open from 'open';
 import readline from 'node:readline';
 import { saveAuth, loadAuth } from '../core/auth.js';
 import { getGeminiAuthUrl, exchangeGeminiCode } from '../utils/oauth/google-gemini.js';
+import { loginGitHubCopilot } from '../utils/oauth/github-copilot.js';
+import { loginOpenAICodex } from '../utils/oauth/openai-codex.js';
+import { loginQwenCli } from '../utils/oauth/qwen-cli.js';
 import { PROVIDER_MODELS } from '../core/models.js';
 import { fetchProviderModels } from '../core/discovery.js';
 
@@ -12,11 +15,21 @@ const PROVIDERS = [
     { id: 'anthropic', name: 'Anthropic', hasSubmenu: true },
     { id: 'google', name: 'Google (Gemini)', hasSubmenu: true },
     { id: 'github-copilot', name: 'GitHub Copilot (OAuth)' },
+    { id: 'openai-codex', name: 'OpenAI Codex / ChatGPT (OAuth)' },
+    { id: 'qwen-cli', name: 'Qwen CLI (OAuth)' },
     { id: 'deepseek', name: 'DeepSeek' },
     { id: 'openrouter', name: 'OpenRouter' },
     { id: 'xai', name: 'xAI (Grok)' },
     { id: 'moonshot', name: 'Moonshot (Kimi)' },
     { id: 'zhipu', name: 'Zhipu AI (GLM)' },
+    { id: 'cerebras', name: 'Cerebras' },
+    { id: 'mistral', name: 'Mistral AI' },
+    { id: 'huggingface', name: 'Hugging Face' },
+    { id: 'opencode', name: 'OpenCode' },
+    { id: 'zai', name: 'Z.AI (Zhipu Coding)' },
+    { id: 'minimax-cn', name: 'MiniMax CN (Anthropic API)' },
+    { id: 'kimi-coding', name: 'Kimi Coding' },
+    { id: 'vercel-ai-gateway', name: 'Vercel AI Gateway' },
     { id: 'groq', name: 'Groq' },
     { id: 'together', name: 'Together AI' },
     { id: 'minimax', name: 'MiniMax' },
@@ -39,40 +52,50 @@ const GOOGLE_SUBMENU = [
     { id: 'antigravity', name: 'Antigravity (Sandbox)' }
 ];
 
+const OAUTH_PROVIDERS = ['gemini-cli', 'antigravity', 'github-copilot', 'openai-codex', 'qwen-cli'];
+
 /**
- * Performs the OAuth flow outside of Ink, writing the URL directly to stdout
- * so it appears as a single unbroken clickable line in the terminal.
- * This mirrors the approach used by gemini-cli's authWithUserCode().
+ * Restore stdin after Ink's unmount (which calls stdin.unref() + setRawMode(false))
  */
-async function performOauthFlow(providerId: string): Promise<boolean> {
-    const { url, verifier } = await getGeminiAuthUrl();
-
-    // Try to open the URL in the browser
-    try { await open(url); } catch (e) {}
-
-    // Restore stdin after Ink's unmount (which calls stdin.unref() + setRawMode(false))
+function restoreStdin() {
     if (process.stdin.isTTY) {
         process.stdin.setRawMode(false);
     }
     process.stdin.ref();
     process.stdin.resume();
+}
 
-    // Write URL directly to stdout — no framework wrapping, single clickable line
-    process.stdout.write('\nPlease visit the following URL to authorize the application:\n\n');
-    process.stdout.write(url + '\n\n');
-
-    // Read authorization code via readline (same approach as gemini-cli)
-    const code = await new Promise<string>((resolve) => {
+/**
+ * Prompt for input via readline.
+ */
+function promptInput(message: string): Promise<string> {
+    return new Promise<string>((resolve) => {
         const rl = readline.createInterface({
             input: process.stdin,
             output: process.stdout,
             terminal: true,
         });
-        rl.question('Enter the authorization code: ', (answer) => {
+        rl.question(message, (answer) => {
             rl.close();
             resolve(answer.trim());
         });
     });
+}
+
+/**
+ * Performs the Gemini OAuth flow outside of Ink.
+ */
+async function performGeminiOauthFlow(providerId: string): Promise<boolean> {
+    const { url, verifier } = await getGeminiAuthUrl();
+
+    try { await open(url); } catch (e) {}
+
+    restoreStdin();
+
+    process.stdout.write('\nPlease visit the following URL to authorize the application:\n\n');
+    process.stdout.write(url + '\n\n');
+
+    const code = await promptInput('Enter the authorization code: ');
 
     if (!code) {
         process.stdout.write('Authorization code is required.\n');
@@ -92,6 +115,133 @@ async function performOauthFlow(providerId: string): Promise<boolean> {
     } catch (e: any) {
         process.stdout.write(`\nError: ${e.message}\n`);
         return false;
+    }
+}
+
+/**
+ * Performs GitHub Copilot device code OAuth flow outside of Ink.
+ */
+async function performGitHubCopilotOauthFlow(): Promise<boolean> {
+    restoreStdin();
+
+    try {
+        const result = await loginGitHubCopilot();
+        
+        process.stdout.write('\n🔗 GitHub Copilot Authentication\n');
+        process.stdout.write(`\nPlease visit: ${result.auth.verification_uri}\n`);
+        process.stdout.write(`Enter code: ${result.auth.user_code}\n\n`);
+
+        try { await open(result.auth.verification_uri); } catch {}
+
+        process.stdout.write('Waiting for authorization...\n');
+        const creds = await result.poll();
+
+        const auth = loadAuth();
+        auth['github-copilot'] = {
+            apiKey: creds.apiKey,
+            refresh: creds.refresh,
+            projectId: creds.projectId,
+            expires: creds.expires,
+            type: 'oauth',
+        };
+        saveAuth(auth);
+
+        process.stdout.write('\n✅ GitHub Copilot authentication successful!\n\n');
+        return true;
+    } catch (e: any) {
+        process.stdout.write(`\nError: ${e.message}\n`);
+        return false;
+    }
+}
+
+/**
+ * Performs OpenAI Codex OAuth flow outside of Ink.
+ */
+async function performOpenAICodexOauthFlow(): Promise<boolean> {
+    restoreStdin();
+
+    try {
+        const creds = await loginOpenAICodex({
+            onAuth: (url) => {
+                process.stdout.write('\n🔗 OpenAI Codex Authentication\n');
+                process.stdout.write(`\nPlease visit: ${url}\n`);
+                process.stdout.write('A browser window should open. Complete login to finish.\n\n');
+                try { open(url); } catch {}
+            },
+            onPrompt: (message) => promptInput(message + ' '),
+        });
+
+        const auth = loadAuth();
+        auth['openai-codex'] = {
+            apiKey: creds.apiKey,
+            refresh: creds.refresh,
+            projectId: creds.projectId,
+            expires: creds.expires,
+            type: 'oauth',
+        };
+        saveAuth(auth);
+
+        process.stdout.write('\n✅ OpenAI Codex authentication successful!\n\n');
+        return true;
+    } catch (e: any) {
+        process.stdout.write(`\nError: ${e.message}\n`);
+        return false;
+    }
+}
+
+/**
+ * Performs Qwen CLI device code OAuth flow outside of Ink.
+ */
+async function performQwenCliOauthFlow(): Promise<boolean> {
+    restoreStdin();
+
+    try {
+        const result = await loginQwenCli();
+
+        process.stdout.write('\n🔗 Qwen CLI Authentication\n');
+        process.stdout.write(`\nPlease visit: ${result.verificationUri}\n`);
+        process.stdout.write(`Enter code: ${result.userCode}\n\n`);
+
+        try { await open(result.verificationUri); } catch {}
+
+        process.stdout.write('Waiting for authorization...\n');
+        const creds = await result.poll();
+
+        const auth = loadAuth();
+        auth['qwen-cli'] = {
+            apiKey: creds.apiKey,
+            refresh: creds.refresh,
+            projectId: creds.projectId,
+            expires: creds.expires,
+            type: 'oauth',
+        };
+        saveAuth(auth);
+
+        process.stdout.write('\n✅ Qwen CLI authentication successful!\n\n');
+        return true;
+    } catch (e: any) {
+        process.stdout.write(`\nError: ${e.message}\n`);
+        return false;
+    }
+}
+
+/**
+ * Dispatch OAuth flow based on provider ID.
+ */
+async function performOauthFlow(providerId: string): Promise<boolean> {
+    switch (providerId) {
+        case 'gemini-cli':
+        case 'antigravity':
+            return performGeminiOauthFlow(providerId);
+        case 'github-copilot':
+            return performGitHubCopilotOauthFlow();
+        case 'openai-codex':
+            return performOpenAICodexOauthFlow();
+        case 'qwen-cli':
+            return performQwenCliOauthFlow();
+        default:
+            process.stdout.write(`Unknown OAuth provider: ${providerId}\n`);
+            return false;
     }
 }
 
@@ -161,6 +311,9 @@ const App: React.FC<AppProps> = ({ initialProviderId, skipToModels, onOauthReque
                     setStep('google_submenu');
                 } else if (provider.id === 'anthropic') {
                     setStep('anthropic_submenu');
+                } else if (OAUTH_PROVIDERS.includes(provider.id)) {
+                    // Signal to parent to handle OAuth outside Ink
+                    onOauthRequest?.(provider.id);
                 } else {
                     setActiveProviderId(provider.id);
                     prefetchModels(provider.id);

@@ -177,6 +177,67 @@ export async function getProvider(modelId: string, configPath?: string) {
             }
             return createAmazonBedrock(bedrockConfig)(modelName);
         }
+        // Group 1: Simple OpenAI-compatible (API Key + baseURL)
+        case 'cerebras': {
+            const { createOpenAI: create } = await import('@ai-sdk/openai');
+            return create({ apiKey: creds.apiKey, baseURL: 'https://api.cerebras.ai/v1' })(modelName);
+        }
+        case 'mistral': {
+            const { createOpenAI: create } = await import('@ai-sdk/openai');
+            return create({ apiKey: creds.apiKey, baseURL: 'https://api.mistral.ai/v1' })(modelName);
+        }
+        case 'huggingface': {
+            const { createOpenAI: create } = await import('@ai-sdk/openai');
+            return create({ apiKey: creds.apiKey, baseURL: 'https://router.huggingface.co/v1' })(modelName);
+        }
+        case 'opencode': {
+            const { createOpenAI: create } = await import('@ai-sdk/openai');
+            return create({ apiKey: creds.apiKey, baseURL: 'https://opencode.ai/zen/v1' })(modelName);
+        }
+        case 'zai': {
+            const { createOpenAI: create } = await import('@ai-sdk/openai');
+            return create({ apiKey: creds.apiKey, baseURL: 'https://api.z.ai/api/coding/paas/v4' })(modelName);
+        }
+        // Group 2: Anthropic-compatible (API Key + baseURL)
+        case 'minimax-cn': {
+            const { createAnthropic } = await import('@ai-sdk/anthropic');
+            return createAnthropic({ apiKey: creds.apiKey, baseURL: 'https://api.minimaxi.com/anthropic' })(modelName);
+        }
+        case 'kimi-coding': {
+            const { createAnthropic } = await import('@ai-sdk/anthropic');
+            return createAnthropic({ apiKey: creds.apiKey, baseURL: 'https://api.kimi.com/coding' })(modelName);
+        }
+        case 'vercel-ai-gateway': {
+            const { createAnthropic } = await import('@ai-sdk/anthropic');
+            return createAnthropic({ apiKey: creds.apiKey, baseURL: 'https://ai-gateway.vercel.sh' })(modelName);
+        }
+        // Group 3: OAuth providers
+        case 'github-copilot': {
+            const { createAnthropic } = await import('@ai-sdk/anthropic');
+            const baseURL = creds.projectId || 'https://api.individual.githubcopilot.com';
+            return createAnthropic({
+                apiKey: creds.apiKey,
+                baseURL,
+                headers: {
+                    'User-Agent': 'GitHubCopilotChat/0.35.0',
+                    'Editor-Version': 'vscode/1.107.0',
+                    'Editor-Plugin-Version': 'copilot-chat/0.35.0',
+                    'Copilot-Integration-Id': 'vscode-chat',
+                }
+            })(modelName);
+        }
+        case 'openai-codex': {
+            const { createOpenAI } = await import('@ai-sdk/openai');
+            return createOpenAI({
+                apiKey: creds.apiKey,
+                baseURL: 'https://chatgpt.com/backend-api'
+            })(modelName);
+        }
+        case 'qwen-cli': {
+            const { createOpenAI: create } = await import('@ai-sdk/openai');
+            const baseURL = creds.projectId || 'https://dashscope.aliyuncs.com/compatible-mode/v1';
+            return create({ apiKey: creds.apiKey, baseURL })(modelName);
+        }
         default:
             throw new Error(`Unsupported provider: ${providerBrand}`);
     }
