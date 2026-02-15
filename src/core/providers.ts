@@ -1,4 +1,5 @@
 import { loadAuth, getCredentials } from './auth.js';
+import { GeminiCliProvider } from './gemini-cli-provider.js';
 
 const GEMINI_CLI_HEADERS = {
     "User-Agent": "google-cloud-sdk vscode_cloudshelleditor/0.1",
@@ -20,7 +21,7 @@ export async function getProvider(modelId: string, configPath?: string) {
     
     const creds = await getCredentials(providerBrand, configPath);
 
-    if (!creds) {
+    if (!creds || !creds.apiKey) {
         throw new Error(`No credentials found for provider: "${providerBrand}" (extracted from "${modelId}")`);
     }
 
@@ -38,23 +39,19 @@ export async function getProvider(modelId: string, configPath?: string) {
             return createGoogleGenerativeAI({ apiKey: creds.apiKey })(modelName);
         }
         case 'gemini-cli': {
-            const { createGoogleGenerativeAI } = await import('@ai-sdk/google');
-            return createGoogleGenerativeAI({
-                apiKey: creds.apiKey,
-                baseURL: 'https://cloudcode-pa.googleapis.com/v1internal',
-                headers: GEMINI_CLI_HEADERS
-            })(modelName);
+            return new GeminiCliProvider(
+                modelName,
+                creds.apiKey,
+                creds.projectId
+            ) as any;
         }
         case 'antigravity': {
-            const { createGoogleGenerativeAI } = await import('@ai-sdk/google');
-            return createGoogleGenerativeAI({
-                apiKey: creds.apiKey,
-                baseURL: 'https://daily-cloudcode-pa.sandbox.googleapis.com/v1internal',
-                headers: {
-                    ...GEMINI_CLI_HEADERS,
-                    "User-Agent": "antigravity/1.15.8 darwin/arm64"
-                }
-            })(modelName);
+            return new GeminiCliProvider(
+                modelName,
+                creds.apiKey,
+                creds.projectId,
+                true
+            ) as any;
         }
         case 'deepseek': {
             const { createOpenAI: createDeepSeek } = await import('@ai-sdk/openai');
