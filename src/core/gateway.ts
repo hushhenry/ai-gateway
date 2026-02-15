@@ -4,6 +4,92 @@ import { stream } from 'hono/streaming';
 import { getProvider } from './providers.js';
 import { loadAuth } from './auth.js';
 
+/**
+ * Convert Anthropic API messages to Vercel AI SDK CoreMessage format.
+ * Key differences:
+ * - Anthropic: tool_result blocks inside role:"user" messages
+ * - SDK: role:"tool" messages with toolCallId + result
+ * - Anthropic: tool_use blocks inside role:"assistant" messages
+ * - SDK: role:"assistant" with toolCall content parts
+ */
+function convertAnthropicMessages(messages: any[]): any[] {
+    const result: any[] = [];
+
+    for (const msg of messages) {
+        if (msg.role === 'user') {
+            if (typeof msg.content === 'string') {
+                result.push({ role: 'user', content: msg.content });
+                continue;
+            }
+
+            // Split content into regular content and tool_result blocks
+            const userParts: any[] = [];
+            const toolResults: any[] = [];
+
+            for (const block of msg.content) {
+                if (block.type === 'tool_result') {
+                    toolResults.push(block);
+                } else if (block.type === 'text') {
+                    userParts.push({ type: 'text', text: block.text });
+                } else if (block.type === 'image') {
+                    userParts.push({
+                        type: 'image',
+                        image: block.source?.data || '',
+                        mimeType: block.source?.media_type,
+                    });
+                }
+            }
+
+            // Emit tool results as role:"tool" messages
+            for (const tr of toolResults) {
+                let textContent = '';
+                if (typeof tr.content === 'string') {
+                    textContent = tr.content;
+                } else if (Array.isArray(tr.content)) {
+                    textContent = tr.content
+                        .filter((b: any) => b.type === 'text')
+                        .map((b: any) => b.text)
+                        .join('\n');
+                }
+                result.push({
+                    role: 'tool',
+                    content: [{ type: 'tool-result', toolCallId: tr.tool_use_id, result: textContent }],
+                });
+            }
+
+            // Emit remaining user content
+            if (userParts.length > 0) {
+                result.push({ role: 'user', content: userParts });
+            }
+        } else if (msg.role === 'assistant') {
+            if (typeof msg.content === 'string') {
+                result.push({ role: 'assistant', content: msg.content });
+                continue;
+            }
+
+            const parts: any[] = [];
+            for (const block of msg.content) {
+                if (block.type === 'text') {
+                    parts.push({ type: 'text', text: block.text });
+                } else if (block.type === 'tool_use') {
+                    parts.push({
+                        type: 'tool-call',
+                        toolCallId: block.id,
+                        toolName: block.name,
+                        args: block.input,
+                    });
+                }
+                // thinking blocks are skipped (SDK doesn't have a standard format for them)
+            }
+            if (parts.length > 0) {
+                result.push({ role: 'assistant', content: parts });
+            }
+        }
+    }
+
+    return result;
+}
+
 export class AiGateway {
     private app: Hono;
     private configPath?: string;
@@ -170,18 +256,32 @@ export class AiGateway {
             try {
                 const provider = await getProvider(modelId, this.configPath);
                 
-                // Convert Anthropic messages to Vercel AI SDK format
-                // Vercel AI SDK handles system prompt automatically if passed in options
+                // Convert Anthropic messages to Vercel AI SDK CoreMessage format
+                const messages = convertAnthropicMessages(body.messages);
+
+                // Normalize system prompt: Anthropic can send string or array of content blocks
+                let systemPrompt: string | undefined;
+                if (body.system) {
+                    if (typeof body.system === 'string') {
+                        systemPrompt = body.system;
+                    } else if (Array.isArray(body.system)) {
+                        systemPrompt = body.system
+                            .filter((b: any) => b.type === 'text')
+                            .map((b: any) => b.text)
+                            .join('\n');
+                    }
+                }
+
                 const options: any = {
                     model: provider,
-                    messages: body.messages,
-                    system: body.system,
+                    messages,
+                    system: systemPrompt,
                     temperature: body.temperature,
                     topP: body.top_p,
                     maxTokens: body.max_tokens,
                 };
 
-                // Support Anthropic tools
+                // Support Anthropic tools → Vercel AI SDK format
                 if (body.tools) {
                     options.tools = body.tools.reduce((acc: any, tool: any) => {
                         acc[tool.name] = {
@@ -216,11 +316,14 @@ export class AiGateway {
                         })}\n\n`);
 
                         let currentBlockIndex = -1;
+                        let textBlockOpen = false;
+                        let hasToolCalls = false;
 
                         for await (const part of result.fullStream) {
                             if (part.type === 'text-delta') {
-                                if (currentBlockIndex === -1) {
-                                    currentBlockIndex = 0;
+                                if (!textBlockOpen) {
+                                    currentBlockIndex++;
+                                    textBlockOpen = true;
                                     await stream.write(`event: content_block_start\ndata: ${JSON.stringify({
                                         type: 'content_block_start',
                                         index: currentBlockIndex,
@@ -233,6 +336,16 @@ export class AiGateway {
                                     delta: { type: 'text_delta', text: part.textDelta }
                                 })}\n\n`);
                             } else if (part.type === 'tool-call') {
+                                // Close text block if open
+                                if (textBlockOpen) {
+                                    await stream.write(`event: content_block_stop\ndata: ${JSON.stringify({
+                                        type: 'content_block_stop',
+                                        index: currentBlockIndex
+                                    })}\n\n`);
+                                    textBlockOpen = false;
+                                }
+
+                                hasToolCalls = true;
                                 currentBlockIndex++;
                                 await stream.write(`event: content_block_start\ndata: ${JSON.stringify({
                                     type: 'content_block_start',
@@ -245,12 +358,13 @@ export class AiGateway {
                                     }
                                 })}\n\n`);
 
+                                const argsJson = typeof part.args === 'string' ? part.args : JSON.stringify(part.args);
                                 await stream.write(`event: content_block_delta\ndata: ${JSON.stringify({
                                     type: 'content_block_delta',
                                     index: currentBlockIndex,
                                     delta: { 
                                         type: 'input_json_delta', 
-                                        partial_json: JSON.stringify(part.args) 
+                                        partial_json: argsJson
                                     }
                                 })}\n\n`);
 
@@ -261,16 +375,19 @@ export class AiGateway {
                             }
                         }
 
-                        if (currentBlockIndex === 0) {
+                        // Close text block if still open
+                        if (textBlockOpen) {
                             await stream.write(`event: content_block_stop\ndata: ${JSON.stringify({
                                 type: 'content_block_stop',
-                                index: 0
+                                index: currentBlockIndex
                             })}\n\n`);
                         }
 
+                        const stopReason = hasToolCalls ? 'tool_use' : 'end_turn';
+
                         await stream.write(`event: message_delta\ndata: ${JSON.stringify({
                             type: 'message_delta',
-                            delta: { stop_reason: 'end_turn', stop_sequence: null },
+                            delta: { stop_reason: stopReason, stop_sequence: null },
                             usage: { output_tokens: 0 }
                         })}\n\n`);
 
