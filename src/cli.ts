@@ -39,4 +39,20 @@ program.command('login')
     await runLoginTui();
   });
 
+program.command('doctor')
+  .description('Validate all configured providers (connectivity + tool calling)')
+  .option('-p, --port <number>', 'Gateway port', '8192')
+  .option('--provider <id>', 'Test a specific provider only')
+  .option('-e, --endpoint <type>', 'Endpoint to test: chat, messages, or both', 'chat')
+  .option('-v, --verbose', 'Show error details on failure')
+  .action(async (opts) => {
+    const { runDoctor } = await import('./cli/doctor.js');
+    await runDoctor({
+      port: parseInt(opts.port),
+      provider: opts.provider,
+      endpoint: opts.endpoint,
+      verbose: opts.verbose,
+    });
+  });
+
 program.parse();
