@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { streamText, generateText } from 'ai';
 import { stream } from 'hono/streaming';
+import { jsonSchema } from 'ai';
 import { getProvider } from './providers.js';
 import { loadAuth } from './auth.js';
 
@@ -144,10 +145,23 @@ export class AiGateway {
                         const fn = tool.function || tool;
                         acc[fn.name] = {
                             description: fn.description,
-                            parameters: fn.parameters,
+                            parameters: jsonSchema(fn.parameters),
                         };
                         return acc;
                     }, {});
+
+                    // Forward tool_choice
+                    if (body.tool_choice) {
+                        if (body.tool_choice === 'auto') {
+                            options.toolChoice = { type: 'auto' };
+                        } else if (body.tool_choice === 'required') {
+                            options.toolChoice = { type: 'required' };
+                        } else if (body.tool_choice === 'none') {
+                            options.toolChoice = { type: 'none' };
+                        } else if (typeof body.tool_choice === 'object' && body.tool_choice.function?.name) {
+                            options.toolChoice = { type: 'tool', toolName: body.tool_choice.function.name };
+                        }
+                    }
                 }
 
                 if (isStreaming) {
@@ -286,10 +300,21 @@ export class AiGateway {
                     options.tools = body.tools.reduce((acc: any, tool: any) => {
                         acc[tool.name] = {
                             description: tool.description,
-                            parameters: tool.input_schema,
+                            parameters: jsonSchema(tool.input_schema),
                         };
                         return acc;
                     }, {});
+
+                    // Forward tool_choice (Anthropic format)
+                    if (body.tool_choice) {
+                        if (body.tool_choice.type === 'auto') {
+                            options.toolChoice = { type: 'auto' };
+                        } else if (body.tool_choice.type === 'any') {
+                            options.toolChoice = { type: 'required' };
+                        } else if (body.tool_choice.type === 'tool' && body.tool_choice.name) {
+                            options.toolChoice = { type: 'tool', toolName: body.tool_choice.name };
+                        }
+                    }
                 }
 
                 if (isStreaming) {

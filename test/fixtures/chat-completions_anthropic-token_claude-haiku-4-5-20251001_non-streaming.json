@@ -1,0 +1,65 @@
+{
+  "request": {
+    "model": "anthropic-token/claude-haiku-4-5-20251001",
+    "stream": false,
+    "messages": [
+      {
+        "role": "user",
+        "content": "What is the weather in Tokyo?"
+      }
+    ],
+    "tools": [
+      {
+        "type": "function",
+        "function": {
+          "name": "get_weather",
+          "description": "Get the current weather in a given location",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "location": {
+                "type": "string",
+                "description": "City name"
+              }
+            },
+            "required": [
+              "location"
+            ]
+          }
+        }
+      }
+    ]
+  },
+  "response": {
+    "id": "chatcmpl-1771151506638",
+    "object": "chat.completion",
+    "created": 1771151506,
+    "model": "anthropic-token/claude-haiku-4-5-20251001",
+    "choices": [
+      {
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": "",
+          "tool_calls": [
+            {
+              "id": "toolu_016jn7CKexs7UHBHofdw2WtF",
+              "type": "function",
+              "function": {
+                "name": "get_weather",
+                "arguments": "{\"location\":\"Tokyo\"}"
+              }
+            }
+          ]
+        },
+        "finish_reason": "tool-calls"
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 573,
+      "completion_tokens": 54,
+      "total_tokens": 627
+    }
+  },
+  "timestamp": "2026-02-15T10:31:46.641Z"
+}

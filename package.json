@@ -14,7 +14,11 @@
   "scripts": {
     "build": "tsc",
     "start": "node dist/cli.js serve",
-    "prepublishOnly": "npm run build"
+    "prepublishOnly": "npm run build",
+    "test": "vitest run",
+    "test:integration": "vitest run test/integration",
+    "test:unit": "vitest run test/unit",
+    "test:watch": "vitest"
   },
   "keywords": [
     "ai",
@@ -47,6 +51,7 @@
   "devDependencies": {
     "@types/node": "^20.19.33",
     "@types/react-dom": "^19.2.3",
-    "typescript": "^5.0.0"
+    "typescript": "^5.0.0",
+    "vitest": "^4.0.18"
   }
 }
